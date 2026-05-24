@@ -1,0 +1,54 @@
+:root {
+  font-family: 'Segoe UI', 'Trebuchet MS', sans-serif;
+  color: #2f261d;
+  background: #f7efe3;
+  --page-bg: #f7efe3;
+  --surface: #fffaf2;
+  --surface-strong: #fffdf8;
+  --surface-muted: #f1e4d2;
+  --border: #dec9ad;
+  --accent: #b9833e;
+  --accent-light: #f1d8ad;
+  --accent-hover: #e7c381;
+  --heading: #2f261d;
+  --text: #2f261d;
+  --muted-text: #6c5c4b;
+  --shadow: rgba(84, 57, 29, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  font-size: 32px;
+  margin-bottom: 4px;
+  font-family: Cambria, Constantia, Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--heading);
+}
+
+h2 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--heading);
+}
+
+h3 {
+  font-size: 16px;
+  margin-bottom: 0;
+  font-weight: 600;
+}

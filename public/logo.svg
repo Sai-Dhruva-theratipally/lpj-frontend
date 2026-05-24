@@ -1,0 +1,16 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="60" cy="60" r="58" fill="#fffbf0" stroke="#d4af37" stroke-width="2"/>
+  
+  <!-- Gold accent -->
+  <path d="M 30 60 Q 60 30 90 60 Q 60 90 30 60 Z" fill="#d4af37" opacity="0.3"/>
+  
+  <!-- Purple accent -->
+  <path d="M 40 50 L 60 35 L 80 50 L 60 65 Z" fill="#4a148c"/>
+  
+  <!-- Gold diamond -->
+  <path d="M 35 75 L 50 60 L 65 75 L 50 90 Z" fill="#d4af37"/>
+  
+  <!-- Text indicator -->
+  <text x="60" y="105" font-family="serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#4a148c">LPJ</text>
+</svg>
