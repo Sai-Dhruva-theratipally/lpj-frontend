@@ -91,6 +91,11 @@ function App() {
   const [customers, setCustomers] = useState([])
   const [resetPassword, setResetPassword] = useState('')
   const [resetStockForm, setResetStockForm] = useState({ password: '', stockType: 'TAG' })
+  const [changePasswordForm, setChangePasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
   const [metalRates, setMetalRates] = useState(null)
   const [metalRatesLoading, setMetalRatesLoading] = useState(false)
   const [metalRatesError, setMetalRatesError] = useState('')
@@ -616,19 +621,9 @@ function App() {
     runAction(async () => {
       const data = await request(`/inventory/lookup/${encodeURIComponent(saleEntry.identifier)}`)
       const item = data.data
-      const defaultQuantity = item.stockType === 'TAG' ? 1 : 1
-      const defaultWeight =
-        item.stockType === 'TAG'
-          ? item.weight
-          : Number(item.quantity) > 0
-            ? Number((Number(item.weight) / Number(item.quantity)).toFixed(3))
-            : ''
-      const defaultStoneWeight =
-        item.stockType === 'TAG'
-          ? Number(item.stoneWeight || 0)
-          : Number(item.quantity) > 0
-            ? Number((Number(item.stoneWeight || 0) / Number(item.quantity)).toFixed(3))
-            : 0
+      const defaultQuantity = item.stockType === 'TAG' ? 1 : Number(item.quantity)
+      const defaultWeight = Number(item.weight)
+      const defaultStoneWeight = 0
 
       setSaleEntry({
         identifier: String(item.identifier),
@@ -777,6 +772,31 @@ function App() {
     }, 'Database reset completed')
   }
 
+  const changePassword = (event) => {
+    event.preventDefault()
+
+    if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
+      setError('New password and confirmation do not match')
+      setMessage('')
+      return
+    }
+
+    runAction(async () => {
+      await request('/admin/change-password', {
+        method: 'POST',
+        data: {
+          currentPassword: changePasswordForm.currentPassword,
+          newPassword: changePasswordForm.newPassword,
+        },
+      })
+      setChangePasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      })
+    }, 'Password changed successfully')
+  }
+
   if (!token) {
     return (
       <main className="page narrow">
@@ -838,6 +858,9 @@ function App() {
           resetPassword={resetPassword}
           setResetPassword={setResetPassword}
           resetDatabase={resetDatabase}
+          changePasswordForm={changePasswordForm}
+          setChangePasswordForm={setChangePasswordForm}
+          changePassword={changePassword}
         />
       )}
 
@@ -874,6 +897,7 @@ function App() {
           onRemoveItem={removeSaleItem}
           onFinalSubmit={prepareSaleFinalSubmit}
           loading={loading}
+          api={api}
         />
       )}
 
@@ -1005,7 +1029,24 @@ function HeaderClock({ value }) {
   )
 }
 
-function HomePage({ setPage, resetStockForm, setResetStockForm, resetStock, resetPassword, setResetPassword, resetDatabase }) {
+function HomePage({
+  setPage,
+  resetStockForm,
+  setResetStockForm,
+  resetStock,
+  resetPassword,
+  setResetPassword,
+  resetDatabase,
+  changePasswordForm,
+  setChangePasswordForm,
+  changePassword,
+}) {
+  const canChangePassword =
+    changePasswordForm.currentPassword &&
+    changePasswordForm.newPassword &&
+    changePasswordForm.confirmPassword &&
+    changePasswordForm.newPassword === changePasswordForm.confirmPassword
+
   return (
     <>
       <section className="panel">
@@ -1070,6 +1111,31 @@ function HomePage({ setPage, resetStockForm, setResetStockForm, resetStock, rese
           <button disabled={!resetPassword}>Reset Database</button>
         </form>
       </section>
+
+      <section className="panel">
+        <h2>Change Password</h2>
+        <form onSubmit={changePassword} className="inline-form compact">
+          <input
+            type="password"
+            placeholder="Current password"
+            value={changePasswordForm.currentPassword}
+            onChange={(event) => setChangePasswordForm({ ...changePasswordForm, currentPassword: event.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="New password"
+            value={changePasswordForm.newPassword}
+            onChange={(event) => setChangePasswordForm({ ...changePasswordForm, newPassword: event.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="Confirm new password"
+            value={changePasswordForm.confirmPassword}
+            onChange={(event) => setChangePasswordForm({ ...changePasswordForm, confirmPassword: event.target.value })}
+          />
+          <button disabled={!canChangePassword}>Change Password</button>
+        </form>
+      </section>
     </>
   )
 }
@@ -1115,6 +1181,7 @@ function UnifiedStockPage({
           <select ref={metalTypeRef} value={item.metalType} onChange={(event) => setItem({ ...emptyStockItem, metalType: event.target.value, stockType: item.stockType })}>
             <option value="GOLD">Gold</option>
             <option value="SILVER">Silver</option>
+            <option value="OTHERS">Others</option>
           </select>
         </label>
         <label>
@@ -1178,7 +1245,44 @@ function UnifiedStockPage({
   )
 }
 
-function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items, onLookup, onAddItem, onRemoveItem, onFinalSubmit, loading }) {
+function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items, onLookup, onAddItem, onRemoveItem, onFinalSubmit, loading, api }) {
+  const [suggestions, setSuggestions] = useState([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const suggestionsTimeoutRef = useState(null)[1]
+
+  // Fetch suggestions on search input change
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      if (!searchInput.trim()) {
+        setSuggestions([])
+        setShowSuggestions(false)
+        return
+      }
+
+      try {
+        const response = await api.get('/inventory/suggestions', {
+          params: { search: searchInput, limit: 10 },
+        })
+        setSuggestions(response.data.data || [])
+        setShowSuggestions(true)
+      } catch (err) {
+        console.error('Error fetching suggestions:', err)
+        setSuggestions([])
+      }
+    }
+
+    const timeoutId = setTimeout(fetchSuggestions, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchInput, api])
+
+  const handleSearchSelect = (suggestion) => {
+    setSearchInput(suggestion.value)
+    setEntry({ ...emptySaleEntry, identifier: suggestion.value })
+    setSuggestions([])
+    setShowSuggestions(false)
+  }
+
   const totals = getTotals(items)
 
   return (
@@ -1186,7 +1290,7 @@ function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items
       <div className="section-heading">
         <h2>Sales Transaction</h2>
       </div>
-      <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>Record sales and process inventory reduction</p>
+      <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>Record sales and process inventory reduction. Barcode / Tag Code / Tray Code / Category Name</p>
 
       <div className="grid two compact">
         <CustomerLookupInput value={header.customerName} onChange={(value) => setHeader({ ...header, customerName: value })} customers={customers} />
@@ -1196,14 +1300,86 @@ function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items
         </label>
       </div>
 
-      <form onSubmit={onLookup} className="inline-form compact">
-        <input
-          placeholder="Barcode / Tag Code / Tray Code"
-          value={entry.identifier}
-          onChange={(event) => setEntry({ ...emptySaleEntry, identifier: event.target.value })}
-        />
-        <button disabled={loading || !entry.identifier}>Fetch</button>
-      </form>
+      <div style={{ position: 'relative', marginBottom: '20px' }}>
+        <form onSubmit={onLookup} className="inline-form compact">
+          <input
+            placeholder="Start typing: Barcode / Tag Code / Tray Code / Category Name..."
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            onFocus={() => searchInput && setShowSuggestions(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                onLookup(e)
+              }
+            }}
+          />
+          <button disabled={loading || !searchInput.trim()}>Fetch</button>
+        </form>
+
+        {showSuggestions && suggestions.length > 0 && (
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            background: 'white',
+            border: '1px solid #ddd',
+            borderTop: 'none',
+            borderRadius: '0 0 4px 4px',
+            maxHeight: '250px',
+            overflowY: 'auto',
+            zIndex: 10,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            marginTop: '-4px'
+          }}>
+            {suggestions.map((suggestion, index) => (
+              <div
+                key={index}
+                onClick={() => handleSearchSelect(suggestion)}
+                style={{
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #f0f0f0',
+                  transition: 'background-color 0.15s',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9f9f9'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+              >
+                <div style={{ fontWeight: 500, color: '#333', fontSize: '14px', marginBottom: '4px' }}>
+                  {suggestion.displayText}
+                </div>
+                <div style={{ fontSize: '12px', color: '#666' }}>
+                  {suggestion.type === 'TAG' ? `Tag #${suggestion.tagId}` : suggestion.trayCode}
+                  {suggestion.metalType && ` • ${suggestion.metalType}`}
+                  {suggestion.quantity && ` • Qty: ${suggestion.quantity}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showSuggestions && searchInput && suggestions.length === 0 && (
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            background: 'white',
+            border: '1px solid #ddd',
+            borderTop: 'none',
+            borderRadius: '0 0 4px 4px',
+            padding: '12px 16px',
+            color: '#999',
+            fontSize: '13px',
+            textAlign: 'center',
+            zIndex: 10,
+            marginTop: '-4px'
+          }}>
+            No items found
+          </div>
+        )}
+      </div>
 
       {entry.inventoryId && (
         <form onSubmit={onAddItem} className="form item-form">
@@ -1296,11 +1472,9 @@ function ManualTagPrintPage({ form, setForm, onSubmit, onClear, loading }) {
         <label>
           Code
           <input
-            inputMode="numeric"
-            pattern="[0-9]*"
             value={form.code}
-            onChange={(event) => setForm({ ...form, code: event.target.value.replace(/\D/g, '') })}
-            placeholder="Example: 1001"
+            onChange={(event) => setForm({ ...form, code: event.target.value })}
+            placeholder="Example: 1001 or ABC-123 or any code"
           />
         </label>
         <label>
@@ -1533,6 +1707,7 @@ function TagInventoryPage({ tags, filters, setFilters, categories, sellers, appl
             <option value="">Any</option>
             <option value="GOLD">Gold</option>
             <option value="SILVER">Silver</option>
+            <option value="OTHERS">Others</option>
           </select>
         </label>
         <label>
