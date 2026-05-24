@@ -60,6 +60,13 @@ const emptyManualTagPrint = {
   quantity: 1,
 }
 
+const emptyReprintTagFilters = {
+  tagCode: '',
+  metalType: 'GOLD',
+  category: '',
+  status: '',
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('lpj_token') || '')
   const [page, setPage] = useState('home')
@@ -75,6 +82,8 @@ function App() {
   const [showSaleConfirm, setShowSaleConfirm] = useState(false)
   const [manualTagPrint, setManualTagPrint] = useState(emptyManualTagPrint)
   const [tagFilters, setTagFilters] = useState(emptyTagFilters)
+  const [reprintTagFilters, setReprintTagFilters] = useState(emptyReprintTagFilters)
+  const [reprintTags, setReprintTags] = useState([])
   const [trays, setTrays] = useState([])
   const [tags, setTags] = useState([])
   const [categories, setCategories] = useState([])
@@ -91,16 +100,17 @@ function App() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!message) {
+    if (!message && !error) {
       return undefined
     }
 
     const timeoutId = window.setTimeout(() => {
       setMessage('')
-    }, 4000)
+      setError('')
+    }, 6000)
 
     return () => window.clearTimeout(timeoutId)
-  }, [message])
+  }, [message, error])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -155,6 +165,29 @@ function App() {
     setTags(data.data.items)
   }
 
+  const loadReprintTags = async (filters = reprintTagFilters) => {
+    if (!filters.metalType) {
+      throw new Error('Metal is required')
+    }
+
+    if (!filters.category) {
+      throw new Error('Category is required')
+    }
+
+    const query = new URLSearchParams({
+      limit: '100',
+      metalType: filters.metalType,
+      category: filters.category,
+    })
+
+    if (filters.status) {
+      query.set('status', filters.status)
+    }
+
+    const data = await request(`/inventory/tags?${query.toString()}`)
+    setReprintTags(data.data.items)
+  }
+
   const loadSellers = async () => {
     const data = await request('/sellers')
     setSellers(data.data)
@@ -184,6 +217,25 @@ function App() {
     }
   }
 
+  const updateMetalRates = async () => {
+    setMetalRatesLoading(true)
+    setMetalRatesError('')
+    setError('')
+    setMessage('')
+
+    try {
+      const data = await request('/metal-rates/update', { method: 'POST' })
+      setMetalRates(data)
+      setMessage('Metal rates updated')
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || err.message
+      setMetalRatesError(errorMessage)
+      setError(errorMessage)
+    } finally {
+      setMetalRatesLoading(false)
+    }
+  }
+
   const refreshData = async () => {
     await Promise.all([loadTrays(), loadTags(), loadSellers(), loadCategories(), loadCustomers()])
   }
@@ -204,6 +256,7 @@ function App() {
   }
 
   // Reset stock form with today's date when navigating to add-stock page
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     if (page === 'add-stock') {
       newStockEntry()
@@ -220,32 +273,110 @@ function App() {
       setSaleEntry(emptySaleEntry)
       setSaleItems([])
     }
-  }, [page, currentDateTime])
+  }, [page])
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const ensureSeller = async (sellerName) => {
-    if (!sellerName?.trim()) {
+    const trimmedName = sellerName?.trim()
+
+    if (!trimmedName) {
       throw new Error('Seller name is required')
     }
 
-    if (hasLookup(sellers, sellerName)) {
-      return
+    const existingSeller = findLookup(sellers, trimmedName)
+
+    if (existingSeller) {
+      return existingSeller
     }
 
-    throw new Error('Invalid seller. Select a seller from suggestions.')
+    if (!window.confirm(`Create new seller "${trimmedName}"?`)) {
+      throw new Error('Select an existing seller or confirm new seller creation.')
+    }
+
+    const data = await request('/sellers', {
+      method: 'POST',
+      data: { name: trimmedName },
+    })
+    const seller = data.data
+    setSellers((current) => mergeLookupItem(current, seller))
+    setStockHeader((current) => ({ ...current, sellerName: seller.name }))
+    return seller
   }
 
   const ensureCategory = async (category, stockType) => {
-    if (!category.categoryInput?.trim()) {
+    const trimmedInput = category.categoryInput?.trim()
+
+    if (!trimmedInput) {
       throw new Error('Category or tray value is required')
     }
 
-    const existingCategory = findCategory(categories, category.categoryInput, stockType, category.metalType)
+    const existingCategory = findCategory(categories, trimmedInput, stockType, category.metalType)
 
     if (existingCategory) {
       return existingCategory
     }
 
-    throw new Error('Invalid category. Select a category from suggestions.')
+    if (!window.confirm(`Create new ${stockType === 'TRAY' ? 'tray category' : 'category'} "${trimmedInput}"?`)) {
+      throw new Error('Select an existing category or confirm new category creation.')
+    }
+
+    const categoryCode = window.prompt(`Enter category code for "${trimmedInput}"`)
+    const trimmedCode = categoryCode?.trim()
+
+    if (!trimmedCode) {
+      throw new Error('Category code is required for new category')
+    }
+
+    const duplicateCode = categories.find(
+      (item) => item.categoryCode?.toLowerCase() === trimmedCode.toLowerCase(),
+    )
+
+    if (duplicateCode) {
+      throw new Error(`Category code already exists for ${duplicateCode.name}`)
+    }
+
+    const data = await request('/categories', {
+      method: 'POST',
+      data: {
+        name: trimmedInput,
+        stockType,
+        metalType: category.metalType,
+        categoryCode: trimmedCode,
+      },
+    })
+    const createdCategory = data.data
+    setCategories((current) => mergeCategoryItem(current, createdCategory))
+    setStockItem((current) => ({
+      ...current,
+      categoryInput: createdCategory.categoryCode || createdCategory.name,
+      category: createdCategory.name,
+      categoryCode: createdCategory.categoryCode,
+      metalType: createdCategory.metalType,
+    }))
+    return createdCategory
+  }
+
+  const ensureCustomer = async (customerName) => {
+    const trimmedName = customerName?.trim()
+
+    if (!trimmedName) {
+      throw new Error('Customer name is required')
+    }
+
+    const existingCustomer = findLookup(customers, trimmedName)
+
+    if (existingCustomer) {
+      return existingCustomer
+    }
+
+    if (!window.confirm(`Create new customer "${trimmedName}"?`)) {
+      throw new Error('Select an existing customer or confirm new customer creation.')
+    }
+
+    const customer = { name: trimmedName }
+    setCustomers((current) => mergeLookupItem(current, customer))
+    setSaleHeader((current) => ({ ...current, customerName: customer.name }))
+    return customer
   }
 
   const login = (event) => {
@@ -272,7 +403,7 @@ function App() {
     setCustomers([])
   }
 
-  const newStockEntry = () => {
+  function newStockEntry() {
     setStockHeader({
       sellerName: '',
       date: formatDateToInputValue(currentDateTime),
@@ -287,7 +418,7 @@ function App() {
   const addStockItemToList = (event) => {
     event.preventDefault()
     runAction(async () => {
-      await ensureSeller(stockHeader.sellerName)
+      const seller = await ensureSeller(stockHeader.sellerName)
       const category = await ensureCategory(stockItem, stockItem.stockType)
       const grossWeight = Number(stockItem.weight)
       const stoneWeight = Number(stockItem.stoneWeight || 0)
@@ -309,7 +440,7 @@ function App() {
         quantity: Number(stockItem.quantity),
         weight: grossWeight,
         stoneWeight,
-        sellerName: stockHeader.sellerName,
+        sellerName: seller.name,
         date: stockHeader.date,
       }
 
@@ -355,12 +486,22 @@ function App() {
     }
   }
 
+  const prepareStockFinalSubmit = () => {
+    runAction(async () => {
+      const seller = await ensureSeller(stockHeader.sellerName)
+      setStockHeader((current) => ({ ...current, sellerName: seller.name }))
+      setShowStockConfirm(true)
+    }, '')
+  }
+
   const confirmStockSave = () => {
     runAction(async () => {
+      const seller = await ensureSeller(stockHeader.sellerName)
       const data = await request('/inventory/stock-transactions', {
         method: 'POST',
         data: {
           ...stockHeader,
+          sellerName: seller.name,
           items: stockItems.map((stockListItem) => ({
             stockType: stockListItem.stockType,
             metalType: stockListItem.metalType,
@@ -373,7 +514,9 @@ function App() {
           })),
         },
       })
-      const tagPrintItems = (data.data.items || []).filter((item) => item.stockType === 'TAG')
+      const tagPrintItems = (data.data.items || [])
+        .filter((item) => item.stockType === 'TAG')
+        .map((item) => ({ ...item, sellerName: item.sellerName || data.data.sellerName || seller.name }))
       newStockEntry()
       setShowStockConfirm(false)
       await refreshData()
@@ -409,6 +552,33 @@ function App() {
       })
       await printZpl(data.data.zpl)
     }, '')
+  }
+
+  const applyReprintTagFilters = (event) => {
+    event.preventDefault()
+    runAction(() => loadReprintTags(reprintTagFilters), 'Tags loaded')
+  }
+
+  const printReprintTagByCode = (event) => {
+    event.preventDefault()
+    const tagCode = String(reprintTagFilters.tagCode || '').trim()
+
+    runAction(async () => {
+      if (!tagCode) {
+        throw new Error('Tag code is required')
+      }
+
+      const data = await request('/print/tag', {
+        method: 'POST',
+        data: { tagId: tagCode },
+      })
+      await printZpl(data.data.zpl)
+    }, 'Tag label sent to Zebra printer')
+  }
+
+  const clearReprintTags = () => {
+    setReprintTagFilters(emptyReprintTagFilters)
+    setReprintTags([])
   }
 
   const printManualTextTags = (event) => {
@@ -530,12 +700,22 @@ function App() {
     setSaleItems((current) => current.filter((item, itemIndex) => itemIndex !== index))
   }
 
+  const prepareSaleFinalSubmit = () => {
+    runAction(async () => {
+      const customer = await ensureCustomer(saleHeader.customerName)
+      setSaleHeader((current) => ({ ...current, customerName: customer.name }))
+      setShowSaleConfirm(true)
+    }, '')
+  }
+
   const confirmSaleSave = () => {
     runAction(async () => {
+      const customer = await ensureCustomer(saleHeader.customerName)
       await request('/inventory/sale-transactions', {
         method: 'POST',
         data: {
           ...saleHeader,
+          customerName: customer.name,
           items: saleItems.map((item) => ({
             inventoryId: item.inventoryId,
             identifier: item.identifier,
@@ -636,7 +816,7 @@ function App() {
             <p>Inventory Management</p>
           </div>
         </div>
-        <MetalRateTicker rates={metalRates} loading={metalRatesLoading} error={metalRatesError} />
+        <MetalRateTicker rates={metalRates} loading={metalRatesLoading} error={metalRatesError} onUpdate={updateMetalRates} />
         <HeaderClock value={currentDateTime} />
         <button onClick={logout}>Logout</button>
       </header>
@@ -675,7 +855,7 @@ function App() {
           onEditItem={editStockItem}
           onRemoveItem={removeStockItem}
           onNewEntry={newStockEntry}
-          onFinalSubmit={() => setShowStockConfirm(true)}
+          onFinalSubmit={prepareStockFinalSubmit}
           loading={loading}
           metalTypeRef={metalTypeRef}
         />
@@ -692,7 +872,7 @@ function App() {
           onLookup={lookupSaleProduct}
           onAddItem={addSaleItemToList}
           onRemoveItem={removeSaleItem}
-          onFinalSubmit={() => setShowSaleConfirm(true)}
+          onFinalSubmit={prepareSaleFinalSubmit}
           loading={loading}
         />
       )}
@@ -703,6 +883,22 @@ function App() {
           setForm={setManualTagPrint}
           onSubmit={printManualTextTags}
           onClear={() => setManualTagPrint(emptyManualTagPrint)}
+          loading={loading}
+        />
+      )}
+
+      {page === 'reprint-tags' && (
+        <ReprintTagsPage
+          filters={reprintTagFilters}
+          setFilters={setReprintTagFilters}
+          tags={reprintTags}
+          categories={categories}
+          onApply={applyReprintTagFilters}
+          onPrintTagCode={printReprintTagByCode}
+          onClear={clearReprintTags}
+          onPrint={printSingleInventoryItem}
+          onPrintAll={() => printBatchItems(reprintTags, 'Reprint labels sent to Zebra printer')}
+          onClearResults={() => setReprintTags([])}
           loading={loading}
         />
       )}
@@ -750,24 +946,43 @@ function App() {
   )
 }
 
-function MetalRateTicker({ rates, loading, error }) {
+function MetalRateTicker({ rates, loading, error, onUpdate }) {
   if (loading) {
     return <div className="metal-rates">Loading rates...</div>
   }
 
   if (error) {
-    return <div className="metal-rates muted">Rates unavailable</div>
+    return (
+      <div className="metal-rates muted">
+        <span>Rates unavailable</span>
+        <button className="rate-update-button" type="button" onClick={onUpdate} aria-label="Refresh metal rates" title="Refresh metal rates">
+          ↻
+        </button>
+      </div>
+    )
   }
 
   if (!rates?.goldRate || !rates?.silverRate) {
-    return <div className="metal-rates muted">Rates not updated</div>
+    return (
+      <div className="metal-rates muted">
+        <span>Rates not updated</span>
+        <button className="rate-update-button" type="button" onClick={onUpdate} aria-label="Refresh metal rates" title="Refresh metal rates">
+          ↻
+        </button>
+      </div>
+    )
   }
 
   return (
     <div className="metal-rates" aria-label="Current metal rates">
-      <span>Gold: {formatCurrencyPerGram(rates.goldRate)}</span>
-      <span>Silver: {formatCurrencyPerGram(rates.silverRate)}</span>
+      <div className="rate-values">
+        <span>Gold: {formatCurrencyPerGram(rates.goldRate)}</span>
+        <span>Silver: {formatCurrencyPerGram(rates.silverRate)}</span>
+      </div>
       <small>Updated: {formatRateTime(rates.updatedAt)}</small>
+      <button className="rate-update-button" type="button" onClick={onUpdate} aria-label="Refresh metal rates" title="Refresh metal rates">
+        ↻
+      </button>
     </div>
   )
 }
@@ -805,14 +1020,11 @@ function HomePage({ setPage, resetStockForm, setResetStockForm, resetStock, rese
           <button onClick={() => setPage('sales')} style={{ minHeight: '80px' }}>
             <span>Sales</span>
           </button>
-          <button onClick={() => setPage('trays')} style={{ minHeight: '80px' }}>
-            <span>View Trays</span>
-          </button>
-          <button onClick={() => setPage('tags')} style={{ minHeight: '80px' }}>
-            <span>View Tags</span>
-          </button>
           <button onClick={() => setPage('manual-tag-print')} style={{ minHeight: '80px' }}>
             <span>Print Text Tags</span>
+          </button>
+          <button onClick={() => setPage('reprint-tags')} style={{ minHeight: '80px' }}>
+            <span>Reprint Tags</span>
           </button>
           <button onClick={() => setPage('reports')} style={{ minHeight: '80px' }}>
             <span>Reports</span>
@@ -919,10 +1131,6 @@ function UnifiedStockPage({
           stockType={item.stockType}
           metalType={item.metalType}
         />
-        <label>
-          Date
-          <input type="date" value={header.date} onChange={(event) => setHeader({ ...header, date: event.target.value })} />
-        </label>
         <label>
           Quantity
           <input
@@ -1110,6 +1318,136 @@ function ManualTagPrintPage({ form, setForm, onSubmit, onClear, loading }) {
           Print
         </button>
       </form>
+    </section>
+  )
+}
+
+function ReprintTagsPage({
+  filters,
+  setFilters,
+  tags,
+  categories,
+  onApply,
+  onPrintTagCode,
+  onClear,
+  onPrint,
+  onPrintAll,
+  onClearResults,
+  loading,
+}) {
+  const categoryOptions = getReprintCategoryOptions(categories, filters.metalType)
+
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <h2>Reprint Tags</h2>
+        <button type="button" className="secondary" onClick={onClear}>Clear</button>
+      </div>
+      <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>
+        Print one tag by tag code, or select metal and category to load a list for reprinting.
+      </p>
+
+      <form onSubmit={onPrintTagCode} className="inline-form compact">
+        <input
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="Tag code"
+          value={filters.tagCode}
+          onChange={(event) => setFilters({ ...filters, tagCode: event.target.value.replace(/\D/g, '') })}
+        />
+        <button disabled={loading || !String(filters.tagCode).trim()}>Print Tag</button>
+      </form>
+
+      <form onSubmit={onApply} className="filters reprint-filters">
+        <label>
+          Metal
+          <select
+            value={filters.metalType}
+            onChange={(event) => {
+              setFilters({ ...filters, metalType: event.target.value, category: '' })
+              onClearResults()
+            }}
+          >
+            <option value="GOLD">Gold</option>
+            <option value="SILVER">Silver</option>
+          </select>
+        </label>
+        <label>
+          Category
+          <select
+            value={filters.category}
+            onChange={(event) => {
+              setFilters({ ...filters, category: event.target.value })
+              onClearResults()
+            }}
+          >
+            <option value="">Select category</option>
+            {categoryOptions.map((category) => (
+              <option key={category._id} value={category.name}>
+                {category.name} ({category.categoryCode})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select
+            value={filters.status}
+            onChange={(event) => {
+              setFilters({ ...filters, status: event.target.value })
+              onClearResults()
+            }}
+          >
+            <option value="">Any</option>
+            <option value="AVAILABLE">Available</option>
+            <option value="SOLD">Sold</option>
+          </select>
+        </label>
+        <div className="filter-actions">
+          <button disabled={loading || !filters.metalType || !filters.category}>Show Tags</button>
+          <button type="button" className="secondary" onClick={onPrintAll} disabled={loading || tags.length === 0}>
+            Print All
+          </button>
+        </div>
+      </form>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Tag Code</th>
+              <th>Metal</th>
+              <th>Category</th>
+              <th>Code</th>
+              <th>Gross Weight</th>
+              <th>Stone Weight</th>
+              <th>Seller</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tags.map((tag) => (
+              <tr key={tag._id}>
+                <td><strong>{tag.tagId}</strong></td>
+                <td>{tag.metalType}</td>
+                <td>{tag.category}</td>
+                <td>{tag.categoryCode || '-'}</td>
+                <td>{tag.weight}</td>
+                <td>{tag.stoneWeight ?? 0}</td>
+                <td>{tag.sellerName}</td>
+                <td><span className={`badge ${tag.status.toLowerCase()}`}>{tag.status}</span></td>
+                <td>
+                  <button className="secondary" onClick={() => onPrint({ ...tag, stockType: 'TAG' })} disabled={loading}>
+                    Print
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {tags.length === 0 && <p style={{ textAlign: 'center', color: '#999', marginTop: '20px' }}>No tags selected for reprint</p>}
     </section>
   )
 }
@@ -1415,13 +1753,11 @@ function SaleItemTable({ items, onRemove }) {
 
 function CategoryLookupInput({ value, onChange, categories, stockType, metalType }) {
   const suggestions = filterCategories(categories, value, stockType, metalType)
-  const invalid = value.trim() && !findCategory(categories, value, stockType, metalType)
 
   return (
     <label>
       Category / Tray
       <input
-        className={invalid ? 'invalid-input' : ''}
         list={`category-suggestions-${stockType || 'all'}`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1434,20 +1770,17 @@ function CategoryLookupInput({ value, onChange, categories, stockType, metalType
           </option>
         ))}
       </datalist>
-      {invalid && <small className="field-error">Invalid category</small>}
     </label>
   )
 }
 
 function SellerLookupInput({ value, onChange, sellers }) {
   const suggestions = filterNames(sellers, value)
-  const invalid = value.trim() && !hasLookup(sellers, value)
 
   return (
     <label>
       Seller
       <input
-        className={invalid ? 'invalid-input' : ''}
         list="seller-suggestions"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1458,20 +1791,17 @@ function SellerLookupInput({ value, onChange, sellers }) {
           <option key={seller._id} value={seller.name} />
         ))}
       </datalist>
-      {invalid && <small className="field-error">Invalid seller</small>}
     </label>
   )
 }
 
 function CustomerLookupInput({ value, onChange, customers }) {
   const suggestions = filterNames(customers, value)
-  const invalid = value.trim() && customers.length > 0 && !hasLookup(customers, value)
 
   return (
     <label>
       Customer
       <input
-        className={invalid ? 'invalid-input' : ''}
         list="customer-suggestions"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1482,7 +1812,6 @@ function CustomerLookupInput({ value, onChange, customers }) {
           <option key={customer.name} value={customer.name} />
         ))}
       </datalist>
-      {invalid && <small className="field-error">Invalid customer</small>}
     </label>
   )
 }
@@ -1523,8 +1852,62 @@ function filterCategories(items, value, stockType, metalType) {
   })
 }
 
-function hasLookup(items, value) {
-  return items.some((item) => item.name.toLowerCase() === value.trim().toLowerCase())
+function getReprintCategoryOptions(items, metalType) {
+  return items
+    .filter((item) => {
+      const stockTypes = item.stockTypes || []
+      const matchesType = stockTypes.length === 0 || stockTypes.includes('TAG')
+      const matchesMetal = !metalType || item.metalType === metalType
+
+      return matchesType && matchesMetal
+    })
+    .sort((first, second) => first.name.localeCompare(second.name))
+}
+
+function findLookup(items, value) {
+  const search = value.trim().toLowerCase()
+  return items.find((item) => item.name.toLowerCase() === search)
+}
+
+function mergeLookupItem(items, item) {
+  const exists = findLookup(items, item.name)
+
+  if (exists) {
+    return items.map((currentItem) => (currentItem.name.toLowerCase() === item.name.toLowerCase() ? item : currentItem))
+  }
+
+  return [...items, item].sort((first, second) => first.name.localeCompare(second.name))
+}
+
+function mergeCategoryItem(items, item) {
+  const itemId = item._id
+  const itemNameKey = item.name.toLowerCase()
+  const itemCodeKey = item.categoryCode?.toLowerCase()
+
+  const exists = items.some((currentItem) => (
+    (itemId && currentItem._id === itemId) ||
+    (
+      currentItem.metalType === item.metalType &&
+      (currentItem.name.toLowerCase() === itemNameKey || (itemCodeKey && currentItem.categoryCode?.toLowerCase() === itemCodeKey))
+    )
+  ))
+
+  if (exists) {
+    return items.map((currentItem) => {
+      const matches =
+        (itemId && currentItem._id === itemId) ||
+        (
+          currentItem.metalType === item.metalType &&
+          (currentItem.name.toLowerCase() === itemNameKey || (itemCodeKey && currentItem.categoryCode?.toLowerCase() === itemCodeKey))
+        )
+
+      return matches ? item : currentItem
+    })
+  }
+
+  return [...items, item].sort((first, second) => (
+    first.metalType.localeCompare(second.metalType) || first.name.localeCompare(second.name)
+  ))
 }
 
 function findCategory(items, value, stockType, metalType) {
@@ -1594,6 +1977,7 @@ function getPrintPayload(item) {
     grossWeight: item.grossWeight ?? item.totalWeight ?? item.weight,
     totalWeight: item.totalWeight,
     stoneWeight: item.stoneWeight ?? 0,
+    sellerName: item.sellerName,
   }
 }
 

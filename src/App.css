@@ -64,7 +64,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -72,6 +72,14 @@
   color: var(--heading);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.rate-values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   white-space: nowrap;
 }
 
@@ -84,6 +92,20 @@
 .metal-rates.muted {
   color: var(--muted-text);
   font-weight: 500;
+}
+
+.rate-update-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface-strong);
+  box-shadow: none;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .header-clock {
@@ -278,6 +300,10 @@ button:disabled {
 .manual-print-form {
   grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) minmax(110px, 0.45fr) auto;
   align-items: end;
+}
+
+.reprint-filters {
+  grid-template-columns: minmax(140px, 0.5fr) minmax(220px, 1fr) minmax(140px, 0.5fr) auto;
 }
 
 .report-filters {
@@ -568,6 +594,7 @@ tr.selected {
   .filters,
   .item-form,
   .manual-print-form,
+  .reprint-filters,
   .report-filters,
   .document-upload-form {
     grid-template-columns: 1fr;
