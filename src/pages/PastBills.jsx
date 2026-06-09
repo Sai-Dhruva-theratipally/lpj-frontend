@@ -159,6 +159,17 @@ function PastBillsPage({ api }) {
     setSelectedReceivedItems([])
   }
 
+  const statusLabel = (status) => {
+    if (status === 'RETURNED') return 'Returned'
+    if (status === 'PARTIALLY_RETURNED') return 'Partially Returned'
+    return 'Active'
+  }
+
+  const closePopup = () => {
+    setMessage('')
+    setError('')
+  }
+
   return (
     <div className="past-bills-container">
       <div className="past-bills-header">
@@ -166,8 +177,23 @@ function PastBillsPage({ api }) {
         <p>Search bills by bill number, customer name, or category</p>
       </div>
 
-      {message && <div className="alert alert-success">{message}</div>}
-      {error && <div className="alert alert-error">{error}</div>}
+      {(message || error) && (
+        <div className="popup-backdrop" role="presentation" onClick={closePopup}>
+          <div
+            className={`feedback-popup ${error ? 'feedback-popup-error' : 'feedback-popup-success'}`}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="feedback-popup-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="feedback-popup-title">{error ? 'Action Failed' : 'Success'}</h2>
+            <p>{error || message}</p>
+            <button type="button" className="btn btn-primary" onClick={closePopup}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {!billDetails ? (
         <div className="search-section">
@@ -211,6 +237,7 @@ function PastBillsPage({ api }) {
                   <div className="col-billid">Bill #</div>
                   <div className="col-customer">Customer</div>
                   <div className="col-date">Date</div>
+                  <div className="col-status">Status</div>
                   <div className="col-items">Sold Items</div>
                   <div className="col-weight">Weight (g)</div>
                   <div className="col-received">Received (g)</div>
@@ -222,6 +249,11 @@ function PastBillsPage({ api }) {
                     <div className="col-billid">{bill.saleId}</div>
                     <div className="col-customer">{bill.customer}</div>
                     <div className="col-date">{bill.date}</div>
+                    <div className="col-status">
+                      <span className={`bill-status ${String(bill.status || 'ACTIVE').toLowerCase()}`}>
+                        {statusLabel(bill.status)}
+                      </span>
+                    </div>
                     <div className="col-items">{bill.soldItems}</div>
                     <div className="col-weight">{bill.totalWeight}</div>
                     <div className="col-received">{bill.receivedWeight}</div>
@@ -247,6 +279,9 @@ function PastBillsPage({ api }) {
               ← Back to Bills
             </button>
             <h2>{billDetails.saleId}</h2>
+            <span className={`bill-status ${String(billDetails.status || 'ACTIVE').toLowerCase()}`}>
+              {statusLabel(billDetails.status)}
+            </span>
           </div>
 
           <div className="bill-info">
