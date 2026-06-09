@@ -1,45 +1,35 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const reportSections = {
   stock: {
     label: 'Stock',
     endpoint: '/reports/stock',
     types: [
-      ['daily-stock-addition', 'Daily Stock Addition'],
-      ['seller-wise-stock', 'Seller-wise Stock'],
-      ['metal-wise-stock', 'Metal-wise Stock'],
-      ['category-wise-stock', 'Category-wise Stock'],
-      ['tag-vs-tray-stock', 'Tag vs Tray Stock'],
+      ['stock-summary', 'Stock Summary'],
+      ['stock-detailed', 'Stock Detailed'],
     ],
   },
   sales: {
     label: 'Sales',
     endpoint: '/reports/sales',
     types: [
-      ['daily-sales', 'Daily Sales'],
-      ['customer-wise-sales', 'Customer-wise Sales'],
-      ['category-wise-sales', 'Category-wise Sales'],
-      ['metal-wise-sales', 'Gold vs Silver Sales'],
-      ['tag-vs-tray-sales', 'Tag vs Tray Sales'],
-      ['monthly-sales-summary', 'Monthly Sales Summary'],
-      ['cancelled-sales', 'Cancelled Sales'],
+      ['sales-summary', 'Sales Summary'],
+      ['sales-detailed', 'Sales Detailed'],
     ],
   },
-  inventory: {
-    label: 'Inventory',
-    endpoint: '/reports/inventory',
+  salesInward: {
+    label: 'Stock Inward',
+    endpoint: '/reports/sales-inward',
     types: [
-      ['current-inventory', 'Current Inventory'],
-      ['available-stock', 'Available Stock'],
-      ['sold-stock', 'Sold Stock'],
-      ['stone-weight', 'Stone Weight'],
+      ['sales-inward-summary', 'Stock Inward Summary'],
+      ['sales-inward-detailed', 'Stock Inward Detailed'],
     ],
   },
 }
 
 const emptyFilters = {
   section: 'stock',
-  reportType: 'daily-stock-addition',
+  reportType: 'stock-summary',
   fromDate: '',
   toDate: '',
   metalType: '',
@@ -47,6 +37,7 @@ const emptyFilters = {
   seller: '',
   customer: '',
   stockType: '',
+  groupBy: 'date',
 }
 
 function ReportsPage({ api }) {
@@ -55,6 +46,13 @@ function ReportsPage({ api }) {
   const [loading, setLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [error, setError] = useState('')
+
+  // Clear error on component unmount
+  useEffect(() => {
+    return () => {
+      setError('')
+    }
+  }, [])
 
   const selectedSection = reportSections[filters.section]
   const columns = useMemo(() => buildColumns(report?.rows || []), [report])
@@ -65,6 +63,7 @@ function ReportsPage({ api }) {
         ...filters,
         section: value,
         reportType: reportSections[value].types[0][0],
+        groupBy: 'date',
       })
       setReport(null)
       return
@@ -76,12 +75,40 @@ function ReportsPage({ api }) {
   const buildQuery = () => {
     const query = new URLSearchParams()
     Object.entries(filters).forEach(([key, value]) => {
-      if (key !== 'section' && value) {
+      if (key !== 'section' && value && shouldIncludeFilter(key)) {
         query.set(key, value)
       }
     })
     return query.toString()
   }
+
+  const shouldIncludeFilter = (key) => {
+    if (key === 'seller') {
+      return filters.section === 'stock'
+    }
+
+    if (key === 'customer') {
+      return filters.section !== 'stock'
+    }
+
+    if (key === 'groupBy') {
+      return filters.section !== 'stock'
+    }
+
+    return true
+  }
+
+  const showGroupBy = filters.section !== 'stock'
+  const stockTypeOptions = filters.section === 'sales'
+    ? [
+        ['TAG', 'Tag'],
+        ['TRAY', 'Tray'],
+      ]
+    : [
+        ...(filters.section === 'stock' ? [['TAG', 'Tag'], ['TRAY', 'Tray']] : []),
+        ['RAW_METAL', 'Raw Metal'],
+        ['OLD_ORNAMENT', 'Old Ornament'],
+      ]
 
   const generateReport = async (event) => {
     event.preventDefault()
@@ -158,28 +185,43 @@ function ReportsPage({ api }) {
             <option value="">Any</option>
             <option value="GOLD">Gold</option>
             <option value="SILVER">Silver</option>
+            {filters.section === 'stock' && <option value="OTHERS">Others</option>}
           </select>
         </label>
         <label>
-          Stock Type
+          Type
           <select value={filters.stockType} onChange={(event) => updateFilter('stockType', event.target.value)}>
             <option value="">Any</option>
-            <option value="TAG">Tag</option>
-            <option value="TRAY">Tray</option>
+            {stockTypeOptions.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </label>
+        {showGroupBy && (
+          <label>
+            Group By
+            <select value={filters.groupBy} onChange={(event) => updateFilter('groupBy', event.target.value)}>
+              <option value="date">Date</option>
+              <option value="customer">Customer</option>
+              <option value="item">Item</option>
+            </select>
+          </label>
+        )}
         <label>
           Category
           <input value={filters.category} onChange={(event) => updateFilter('category', event.target.value)} />
         </label>
-        <label>
-          Seller
-          <input value={filters.seller} onChange={(event) => updateFilter('seller', event.target.value)} />
-        </label>
-        <label>
-          Customer
-          <input value={filters.customer} onChange={(event) => updateFilter('customer', event.target.value)} />
-        </label>
+        {filters.section === 'stock' ? (
+          <label>
+            Seller
+            <input value={filters.seller} onChange={(event) => updateFilter('seller', event.target.value)} />
+          </label>
+        ) : (
+          <label>
+            Customer
+            <input value={filters.customer} onChange={(event) => updateFilter('customer', event.target.value)} />
+          </label>
+        )}
         <div className="report-actions">
           <button disabled={loading}>{loading ? 'Generating...' : 'Generate Report'}</button>
           <button type="button" className="secondary" onClick={downloadPdf} disabled={downloading}>
@@ -231,6 +273,15 @@ function buildColumns(rows) {
   }
 
   const preferred = [
+    'metalType',
+    'category',
+    'item',
+    'tagNumber',
+    'tagId',
+    'identifier',
+    'stockType',
+    'pieces',
+    'weight',
     'date',
     'saleDate',
     'cancelledAt',
@@ -239,15 +290,12 @@ function buildColumns(rows) {
     'saleId',
     'seller',
     'customer',
-    'stockType',
-    'identifier',
-    'tagId',
-    'metalType',
-    'category',
     'categoryCode',
     'quantity',
     'grossWeight',
     'stoneWeight',
+    'purity',
+    'status',
     'transactionCount',
     'reason',
   ]

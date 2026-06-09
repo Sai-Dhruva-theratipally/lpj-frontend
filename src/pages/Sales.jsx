@@ -6,6 +6,14 @@ function SalesPage({ api }) {
     customerName: '',
     date: new Date().toISOString().split('T')[0],
     items: [],
+    receivedItems: [],
+  })
+  const [oldItemForm, setOldItemForm] = useState({
+    itemType: 'OLD_ORNAMENT',
+    metalType: 'GOLD',
+    category: '',
+    weight: '',
+    purity: '',
   })
   const [searchInput, setSearchInput] = useState('')
   const [suggestions, setSuggestions] = useState([])
@@ -14,6 +22,14 @@ function SalesPage({ api }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [lookupLoading, setLookupLoading] = useState(false)
+
+  // Clear messages on component unmount
+  useEffect(() => {
+    return () => {
+      setMessage('')
+      setError('')
+    }
+  }, [])
 
   // Fetch suggestions on search input change
   useEffect(() => {
@@ -25,7 +41,7 @@ function SalesPage({ api }) {
       }
 
       try {
-        const response = await api.get('/inventory-transactions/suggestions', {
+        const response = await api.get('/inventory/suggestions', {
           params: { search: searchInput, limit: 10 },
         })
         setSuggestions(response.data.data || [])
@@ -46,7 +62,7 @@ function SalesPage({ api }) {
       setError('')
 
       // Get full inventory details
-      const response = await api.get(`/inventory-transactions/lookup/${suggestion.value}`)
+      const response = await api.get(`/inventory/lookup/${suggestion.value}`)
       const inventory = response.data.data
 
       // Check if item already in cart
@@ -83,7 +99,7 @@ function SalesPage({ api }) {
       setSuggestions([])
       setShowSuggestions(false)
       setMessage(`Added ${suggestion.displayText} to cart`)
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to add item')
     } finally {
@@ -125,6 +141,52 @@ function SalesPage({ api }) {
     }))
   }
 
+  const handleAddOldItem = (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!oldItemForm.category.trim()) {
+      setError('Category is required for old item')
+      return
+    }
+
+    if (!oldItemForm.weight || parseFloat(oldItemForm.weight) <= 0) {
+      setError('Weight is required and must be greater than 0')
+      return
+    }
+
+    const newOldItem = {
+      itemType: oldItemForm.itemType,
+      metalType: oldItemForm.metalType,
+      category: oldItemForm.category.toUpperCase(),
+      weight: parseFloat(oldItemForm.weight),
+      purity: oldItemForm.purity.toUpperCase(),
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      receivedItems: [...prev.receivedItems, newOldItem],
+    }))
+
+    setOldItemForm({
+      itemType: 'OLD_ORNAMENT',
+      metalType: 'GOLD',
+      category: '',
+      weight: '',
+      purity: '',
+    })
+
+    setMessage('Old item added successfully')
+    setTimeout(() => setMessage(''), 4000)
+  }
+
+  const removeOldItem = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      receivedItems: prev.receivedItems.filter((_, i) => i !== index),
+    }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -135,7 +197,7 @@ function SalesPage({ api }) {
       return
     }
 
-    if (formData.items.length === 0) {
+    if (formData.items.length === 0 && formData.receivedItems.length === 0) {
       setError('Add at least one item to the sale')
       return
     }
@@ -156,18 +218,22 @@ function SalesPage({ api }) {
             stoneWeight: item.stoneWeight,
           }),
         })),
+        ...(formData.receivedItems.length > 0 && {
+          receivedItems: formData.receivedItems,
+        }),
       }
 
-      await api.post('/inventory-transactions/sale-transactions', payload)
+      await api.post('/inventory/sale-transactions', payload)
       setMessage('Sale completed successfully!')
       setFormData({
         customerName: '',
         date: new Date().toISOString().split('T')[0],
         items: [],
+        receivedItems: [],
       })
       setSearchInput('')
 
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to complete sale')
     } finally {
@@ -176,10 +242,16 @@ function SalesPage({ api }) {
   }
 
   const calculateTotals = () => {
+    const soldItemsWeight = formData.items.reduce((sum, item) => sum + (item.weight || 0), 0)
+    const soldItemsStoneWeight = formData.items.reduce((sum, item) => sum + (item.stoneWeight || 0), 0)
+    const receivedItemsWeight = formData.receivedItems.reduce((sum, item) => sum + (item.weight || 0), 0)
+
     return {
       items: formData.items.length,
-      weight: formData.items.reduce((sum, item) => sum + (item.weight || 0), 0).toFixed(3),
-      stoneWeight: formData.items.reduce((sum, item) => sum + (item.stoneWeight || 0), 0).toFixed(3),
+      weight: soldItemsWeight.toFixed(3),
+      stoneWeight: soldItemsStoneWeight.toFixed(3),
+      receivedItems: formData.receivedItems.length,
+      receivedWeight: receivedItemsWeight.toFixed(3),
     }
   }
 
@@ -349,15 +421,133 @@ function SalesPage({ api }) {
         )}
 
         {/* Submit Button */}
+        <div className="form-section">
+          <h3>Add Old Item (For Return/Exchange)</h3>
+          <div className="old-item-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="itemType">Item Type</label>
+                <select
+                  id="itemType"
+                  value={oldItemForm.itemType}
+                  onChange={(e) => setOldItemForm({ ...oldItemForm, itemType: e.target.value })}
+                  className="input-field"
+                >
+                  <option value="OLD_ORNAMENT">Old Ornament</option>
+                  <option value="RAW_METAL">Raw Metal</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="metalType">Metal Type</label>
+                <select
+                  id="metalType"
+                  value={oldItemForm.metalType}
+                  onChange={(e) => setOldItemForm({ ...oldItemForm, metalType: e.target.value })}
+                  className="input-field"
+                >
+                  <option value="GOLD">Gold</option>
+                  <option value="SILVER">Silver</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="oldCategory">Category / Name *</label>
+                <input
+                  id="oldCategory"
+                  type="text"
+                  placeholder="e.g., Ring, Bangle, Gold Bar"
+                  value={oldItemForm.category}
+                  onChange={(e) => setOldItemForm({ ...oldItemForm, category: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="oldWeight">Weight (g) *</label>
+                <input
+                  id="oldWeight"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  placeholder="0.000"
+                  value={oldItemForm.weight}
+                  onChange={(e) => setOldItemForm({ ...oldItemForm, weight: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="purity">Purity</label>
+                <input
+                  id="purity"
+                  type="text"
+                  placeholder="e.g., 916, 925"
+                  value={oldItemForm.purity}
+                  onChange={(e) => setOldItemForm({ ...oldItemForm, purity: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddOldItem}
+                className="btn btn-secondary"
+                style={{ alignSelf: 'flex-end' }}
+              >
+                Add Old Item
+              </button>
+            </div>
+          </div>
+
+          {formData.receivedItems.length > 0 && (
+            <div className="old-items-list">
+              <h4>Received Items ({formData.receivedItems.length})</h4>
+              <div className="items-table">
+                <div className="items-table-header">
+                  <div className="col-type">Type</div>
+                  <div className="col-metal">Metal</div>
+                  <div className="col-category">Category</div>
+                  <div className="col-weight">Weight (g)</div>
+                  <div className="col-purity">Purity</div>
+                  <div className="col-action">Action</div>
+                </div>
+
+                {formData.receivedItems.map((item, index) => (
+                  <div key={index} className="items-table-row">
+                    <div className="col-type">{item.itemType.replace('_', ' ')}</div>
+                    <div className="col-metal">{item.metalType}</div>
+                    <div className="col-category">{item.category}</div>
+                    <div className="col-weight">{item.weight}</div>
+                    <div className="col-purity">{item.purity || '-'}</div>
+                    <div className="col-action">
+                      <button
+                        type="button"
+                        onClick={() => removeOldItem(index)}
+                        className="btn-remove"
+                        title="Remove item"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="form-actions">
           <button
             type="submit"
-            disabled={loading || formData.items.length === 0}
+            disabled={loading || (formData.items.length === 0 && formData.receivedItems.length === 0)}
             className="btn btn-primary"
           >
-            {loading ? 'Processing...' : `Complete Sale (${formData.items.length} items)`}
+            {loading
+              ? 'Processing...'
+              : `Complete Sale (${formData.items.length} sold + ${formData.receivedItems.length} received)`}
           </button>
-          {formData.items.length > 0 && (
+          {(formData.items.length > 0 || formData.receivedItems.length > 0) && (
             <button
               type="button"
               onClick={() => {
@@ -365,12 +555,13 @@ function SalesPage({ api }) {
                   customerName: formData.customerName,
                   date: formData.date,
                   items: [],
+                  receivedItems: [],
                 })
                 setSearchInput('')
               }}
               className="btn btn-secondary"
             >
-              Clear Items
+              Clear All
             </button>
           )}
         </div>

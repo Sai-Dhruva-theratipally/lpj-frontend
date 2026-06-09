@@ -302,6 +302,28 @@ button:disabled {
   align-items: end;
 }
 
+.embedded-section {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.compact-heading {
+  margin-bottom: 12px;
+}
+
+.compact-heading h3 {
+  margin: 0;
+  color: var(--heading);
+}
+
+.received-item-form {
+  grid-template-columns: minmax(130px, 0.8fr) minmax(110px, 0.7fr) minmax(180px, 1fr) minmax(130px, 0.8fr) minmax(120px, 0.7fr) auto;
+  align-items: end;
+}
+
 .reprint-filters {
   grid-template-columns: minmax(140px, 0.5fr) minmax(220px, 1fr) minmax(140px, 0.5fr) auto;
 }
@@ -594,6 +616,7 @@ tr.selected {
   .filters,
   .item-form,
   .manual-print-form,
+  .received-item-form,
   .reprint-filters,
   .report-filters,
   .document-upload-form {

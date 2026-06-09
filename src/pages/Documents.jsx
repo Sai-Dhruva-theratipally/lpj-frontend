@@ -16,6 +16,14 @@ function DocumentsPage({ api }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
+  // Clear messages on component unmount
+  useEffect(() => {
+    return () => {
+      setMessage('')
+      setError('')
+    }
+  }, [])
+
   const endpoint = useMemo(() => {
     const query = search.trim()
     return query ? `/documents/search?q=${encodeURIComponent(query)}` : '/documents'
@@ -80,6 +88,7 @@ function DocumentsPage({ api }) {
       event.target.reset()
       setMessage('Document uploaded successfully')
       await loadDocuments()
+      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || err.message)
     } finally {
@@ -100,6 +109,7 @@ function DocumentsPage({ api }) {
       await api.delete(`/documents/${document._id}`)
       setDocuments((current) => current.filter((item) => item._id !== document._id))
       setMessage('Document deleted successfully')
+      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || err.message)
     }

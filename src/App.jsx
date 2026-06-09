@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import DocumentsPage from './pages/Documents'
+import PastBillsPage from './pages/PastBills'
 import ReportsPage from './pages/Reports'
 import { printZpl } from './services/zebraBrowserPrint'
 import './App.css'
@@ -45,6 +46,14 @@ const emptySaleEntry = {
   available: false,
 }
 
+const emptyReceivedItem = {
+  itemType: 'RAW_METAL',
+  metalType: 'GOLD',
+  category: '',
+  weight: '',
+  purity: '',
+}
+
 const emptyTagFilters = {
   search: '',
   metalType: '',
@@ -79,6 +88,8 @@ function App() {
   const [saleHeader, setSaleHeader] = useState(emptySaleHeader)
   const [saleEntry, setSaleEntry] = useState(emptySaleEntry)
   const [saleItems, setSaleItems] = useState([])
+  const [saleReceivedItem, setSaleReceivedItem] = useState(emptyReceivedItem)
+  const [saleReceivedItems, setSaleReceivedItems] = useState([])
   const [showSaleConfirm, setShowSaleConfirm] = useState(false)
   const [manualTagPrint, setManualTagPrint] = useState(emptyManualTagPrint)
   const [tagFilters, setTagFilters] = useState(emptyTagFilters)
@@ -112,7 +123,7 @@ function App() {
     const timeoutId = window.setTimeout(() => {
       setMessage('')
       setError('')
-    }, 6000)
+    }, 4000)
 
     return () => window.clearTimeout(timeoutId)
   }, [message, error])
@@ -277,6 +288,8 @@ function App() {
       })
       setSaleEntry(emptySaleEntry)
       setSaleItems([])
+      setSaleReceivedItem(emptyReceivedItem)
+      setSaleReceivedItems([])
     }
   }, [page])
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -619,7 +632,13 @@ function App() {
   const lookupSaleProduct = (event) => {
     event.preventDefault()
     runAction(async () => {
-      const data = await request(`/inventory/lookup/${encodeURIComponent(saleEntry.identifier)}`)
+      const submittedIdentifier = event.currentTarget.elements.identifier?.value?.trim() || saleEntry.identifier
+
+      if (!submittedIdentifier) {
+        throw new Error('Barcode or inventory id is required')
+      }
+
+      const data = await request(`/inventory/lookup/${encodeURIComponent(submittedIdentifier)}`)
       const item = data.data
       const defaultQuantity = item.stockType === 'TAG' ? 1 : Number(item.quantity)
       const defaultWeight = Number(item.weight)
@@ -695,6 +714,49 @@ function App() {
     setSaleItems((current) => current.filter((item, itemIndex) => itemIndex !== index))
   }
 
+  const addReceivedItemToSale = (event) => {
+    event.preventDefault()
+
+    const category = saleReceivedItem.category.trim()
+    const weight = Number(saleReceivedItem.weight)
+    const purity = saleReceivedItem.purity.trim()
+
+    if (!category) {
+      setError('Received item category is required')
+      setMessage('')
+      return
+    }
+
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setError('Received item weight must be greater than 0')
+      setMessage('')
+      return
+    }
+
+    if (saleReceivedItem.itemType === 'OLD_ORNAMENT' && !purity) {
+      setError('Purity is required for old ornaments')
+      setMessage('')
+      return
+    }
+
+    setSaleReceivedItems((current) => [
+      ...current,
+      {
+        ...saleReceivedItem,
+        category,
+        weight,
+        purity: saleReceivedItem.itemType === 'OLD_ORNAMENT' ? purity : '',
+      },
+    ])
+    setSaleReceivedItem(emptyReceivedItem)
+    setError('')
+    setMessage('Received item added to sale')
+  }
+
+  const removeReceivedItemFromSale = (index) => {
+    setSaleReceivedItems((current) => current.filter((item, itemIndex) => itemIndex !== index))
+  }
+
   const prepareSaleFinalSubmit = () => {
     runAction(async () => {
       const customer = await ensureCustomer(saleHeader.customerName)
@@ -718,11 +780,20 @@ function App() {
             weight: item.weight,
             stoneWeight: item.stoneWeight ?? 0,
           })),
+          receivedItems: saleReceivedItems.map((item) => ({
+            itemType: item.itemType,
+            metalType: item.metalType,
+            category: item.category,
+            weight: item.weight,
+            purity: item.itemType === 'OLD_ORNAMENT' ? item.purity : '',
+          })),
         },
       })
       setSaleHeader(emptySaleHeader)
       setSaleEntry(emptySaleEntry)
       setSaleItems([])
+      setSaleReceivedItem(emptyReceivedItem)
+      setSaleReceivedItems([])
       setShowSaleConfirm(false)
       await refreshData()
     }, 'Sale transaction saved')
@@ -892,9 +963,15 @@ function App() {
           entry={saleEntry}
           setEntry={setSaleEntry}
           items={saleItems}
+          receivedItem={saleReceivedItem}
+          setReceivedItem={setSaleReceivedItem}
+          receivedItems={saleReceivedItems}
+          categories={categories}
           onLookup={lookupSaleProduct}
           onAddItem={addSaleItemToList}
           onRemoveItem={removeSaleItem}
+          onAddReceivedItem={addReceivedItemToSale}
+          onRemoveReceivedItem={removeReceivedItemFromSale}
           onFinalSubmit={prepareSaleFinalSubmit}
           loading={loading}
           api={api}
@@ -945,6 +1022,7 @@ function App() {
       )}
 
       {page === 'documents' && <DocumentsPage api={api} />}
+      {page === 'past-bills' && <PastBillsPage api={api} />}
       {page === 'reports' && <ReportsPage api={api} categories={categories} sellers={sellers} customers={customers} />}
 
       {showStockConfirm && (
@@ -961,6 +1039,7 @@ function App() {
         <SaleConfirmModal
           header={saleHeader}
           items={saleItems}
+          receivedItems={saleReceivedItems}
           onCancel={() => setShowSaleConfirm(false)}
           onConfirm={confirmSaleSave}
           loading={loading}
@@ -1060,6 +1139,9 @@ function HomePage({
           </button>
           <button onClick={() => setPage('sales')} style={{ minHeight: '80px' }}>
             <span>Sales</span>
+          </button>
+          <button onClick={() => setPage('past-bills')} style={{ minHeight: '80px' }}>
+            <span>View Past Bills</span>
           </button>
           <button onClick={() => setPage('manual-tag-print')} style={{ minHeight: '80px' }}>
             <span>Print Text Tags</span>
@@ -1245,11 +1327,29 @@ function UnifiedStockPage({
   )
 }
 
-function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items, onLookup, onAddItem, onRemoveItem, onFinalSubmit, loading, api }) {
+function UnifiedSalesPage({
+  header,
+  setHeader,
+  customers,
+  entry,
+  setEntry,
+  items,
+  receivedItem,
+  setReceivedItem,
+  receivedItems,
+  categories,
+  onLookup,
+  onAddItem,
+  onRemoveItem,
+  onAddReceivedItem,
+  onRemoveReceivedItem,
+  onFinalSubmit,
+  loading,
+  api,
+}) {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [searchInput, setSearchInput] = useState('')
-  const suggestionsTimeoutRef = useState(null)[1]
 
   // Fetch suggestions on search input change
   useEffect(() => {
@@ -1303,6 +1403,7 @@ function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items
       <div style={{ position: 'relative', marginBottom: '20px' }}>
         <form onSubmit={onLookup} className="inline-form compact">
           <input
+            name="identifier"
             placeholder="Start typing: Barcode / Tag Code / Tray Code / Category Name..."
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
@@ -1435,12 +1536,69 @@ function UnifiedSalesPage({ header, setHeader, customers, entry, setEntry, items
         </form>
       )}
 
+      <section className="embedded-section">
+        <div className="section-heading compact-heading">
+          <h3>Received From Customer</h3>
+        </div>
+        <form onSubmit={onAddReceivedItem} className="form received-item-form">
+          <label>
+            Item Type
+            <select
+              value={receivedItem.itemType}
+              onChange={(event) => setReceivedItem({ ...emptyReceivedItem, itemType: event.target.value, metalType: receivedItem.metalType })}
+            >
+              <option value="RAW_METAL">Raw Metal</option>
+              <option value="OLD_ORNAMENT">Old Ornament</option>
+            </select>
+          </label>
+          <label>
+            Metal
+            <select value={receivedItem.metalType} onChange={(event) => setReceivedItem({ ...receivedItem, metalType: event.target.value })}>
+              <option value="GOLD">Gold</option>
+              <option value="SILVER">Silver</option>
+            </select>
+          </label>
+          <CategoryTextInput
+            value={receivedItem.category}
+            onChange={(value) => setReceivedItem({ ...receivedItem, category: value })}
+            categories={categories}
+            metalType={receivedItem.metalType}
+          />
+          <label>
+            Weight (grams)
+            <input
+              type="number"
+              min="0.001"
+              step="0.001"
+              value={receivedItem.weight}
+              onChange={(event) => setReceivedItem({ ...receivedItem, weight: event.target.value })}
+            />
+          </label>
+          {receivedItem.itemType === 'OLD_ORNAMENT' && (
+            <label>
+              Purity
+              <input
+                value={receivedItem.purity}
+                onChange={(event) => setReceivedItem({ ...receivedItem, purity: event.target.value })}
+                placeholder="Example: 22K or 916"
+              />
+            </label>
+          )}
+          <button disabled={loading}>
+            Add Received Item
+          </button>
+        </form>
+
+        <ReceivedItemTable items={receivedItems} onRemove={onRemoveReceivedItem} />
+      </section>
+
       <h3 style={{ color: 'var(--heading)', marginTop: '24px' }}>Sale Items ({items.length})</h3>
       <SaleItemTable items={items} onRemove={onRemoveItem} />
       <div className="summary">
         <div><strong>Total Quantity:</strong> {totals.quantity}</div>
         <div><strong>Total Gross Weight:</strong> {totals.weight}</div>
         <div><strong>Total Stone Weight:</strong> {totals.stoneWeight}</div>
+        {receivedItems.length > 0 && <div><strong>Received Weight:</strong> {getReceivedTotal(receivedItems)}</div>}
       </div>
       <button disabled={loading || items.length === 0 || !header.customerName || !header.date} onClick={onFinalSubmit} style={{ width: '100%', marginTop: '12px' }}>
         Final Submit
@@ -1523,11 +1681,9 @@ function ReprintTagsPage({
 
       <form onSubmit={onPrintTagCode} className="inline-form compact">
         <input
-          inputMode="numeric"
-          pattern="[0-9]*"
           placeholder="Tag code"
           value={filters.tagCode}
-          onChange={(event) => setFilters({ ...filters, tagCode: event.target.value.replace(/\D/g, '') })}
+          onChange={(event) => setFilters({ ...filters, tagCode: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
         />
         <button disabled={loading || !String(filters.tagCode).trim()}>Print Tag</button>
       </form>
@@ -1804,7 +1960,7 @@ function StockConfirmModal({ header, items, onCancel, onConfirm, loading }) {
   )
 }
 
-function SaleConfirmModal({ header, items, onCancel, onConfirm, loading }) {
+function SaleConfirmModal({ header, items, receivedItems, onCancel, onConfirm, loading }) {
   const totals = getTotals(items)
 
   return (
@@ -1821,16 +1977,62 @@ function SaleConfirmModal({ header, items, onCancel, onConfirm, loading }) {
         </dl>
         <h3 style={{ marginTop: '20px', color: 'var(--heading)' }}>Items Summary</h3>
         <SaleItemTable items={items} />
+        {receivedItems.length > 0 && (
+          <>
+            <h3 style={{ marginTop: '20px', color: 'var(--heading)' }}>Received From Customer</h3>
+            <ReceivedItemTable items={receivedItems} />
+          </>
+        )}
         <div className="summary">
           <div><strong>Total Quantity:</strong> {totals.quantity}</div>
           <div><strong>Total Gross Weight:</strong> {totals.weight}</div>
           <div><strong>Total Stone Weight:</strong> {totals.stoneWeight}</div>
+          {receivedItems.length > 0 && <div><strong>Received Weight:</strong> {getReceivedTotal(receivedItems)}</div>}
         </div>
         <div className="modal-actions">
           <button className="secondary" onClick={onCancel}>Cancel</button>
           <button disabled={loading} onClick={onConfirm}>Confirm & Process</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ReceivedItemTable({ items, onRemove }) {
+  if (items.length === 0) {
+    return <p>No received items added.</p>
+  }
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Item Type</th>
+            <th>Metal</th>
+            <th>Category</th>
+            <th>Weight</th>
+            <th>Purity</th>
+            {onRemove && <th>Actions</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr key={`${item.itemType}-${item.metalType}-${item.category}-${index}`}>
+              <td>{formatReceivedItemType(item.itemType)}</td>
+              <td>{item.metalType}</td>
+              <td>{item.category}</td>
+              <td>{item.weight}</td>
+              <td>{item.purity || '-'}</td>
+              {onRemove && (
+                <td>
+                  <button className="secondary" onClick={() => onRemove(index)}>Remove</button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -1942,6 +2144,29 @@ function CategoryLookupInput({ value, onChange, categories, stockType, metalType
         {suggestions.map((category) => (
           <option key={category._id} value={category.categoryCode || category.name}>
             {category.name} ({category.metalType}) - {category.categoryCode}
+          </option>
+        ))}
+      </datalist>
+    </label>
+  )
+}
+
+function CategoryTextInput({ value, onChange, categories, metalType }) {
+  const suggestions = categories.filter((category) => !metalType || category.metalType === metalType)
+
+  return (
+    <label>
+      Category
+      <input
+        list={`received-category-suggestions-${metalType || 'all'}`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Category"
+      />
+      <datalist id={`received-category-suggestions-${metalType || 'all'}`}>
+        {suggestions.map((category) => (
+          <option key={category._id} value={category.name}>
+            {category.categoryCode ? `${category.categoryCode} - ${category.name}` : category.name}
           </option>
         ))}
       </datalist>
@@ -2104,6 +2329,18 @@ function getTotals(items) {
     weight: Number(items.reduce((sum, item) => sum + Number(item.weight || 0), 0).toFixed(3)),
     stoneWeight: Number(items.reduce((sum, item) => sum + Number(item.stoneWeight || 0), 0).toFixed(3)),
   }
+}
+
+function getReceivedTotal(items) {
+  return Number(items.reduce((sum, item) => sum + Number(item.weight || 0), 0).toFixed(3))
+}
+
+function formatReceivedItemType(value) {
+  if (value === 'OLD_ORNAMENT') {
+    return 'Old Ornament'
+  }
+
+  return 'Raw Metal'
 }
 
 function getTodayInputDate() {
