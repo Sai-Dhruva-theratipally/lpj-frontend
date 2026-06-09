@@ -88,7 +88,6 @@ function DocumentsPage({ api }) {
       event.target.reset()
       setMessage('Document uploaded successfully')
       await loadDocuments()
-      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || err.message)
     } finally {
@@ -109,10 +108,14 @@ function DocumentsPage({ api }) {
       await api.delete(`/documents/${document._id}`)
       setDocuments((current) => current.filter((item) => item._id !== document._id))
       setMessage('Document deleted successfully')
-      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || err.message)
     }
+  }
+
+  const closePopup = () => {
+    setMessage('')
+    setError('')
   }
 
   return (
@@ -158,7 +161,21 @@ function DocumentsPage({ api }) {
         </form>
       </section>
 
-      {(message || error) && <div className={`status ${error ? 'error' : 'success'}`}>{error || message}</div>}
+      {(message || error) && (
+        <div className="feedback-backdrop" role="presentation" onClick={closePopup}>
+          <div
+            className={`feedback-dialog ${error ? 'feedback-dialog-error' : 'feedback-dialog-success'}`}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="documents-feedback-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="documents-feedback-title">{error ? 'Action Failed' : 'Success'}</h2>
+            <p>{error || message}</p>
+            <button type="button" onClick={closePopup}>OK</button>
+          </div>
+        </div>
+      )}
 
       <section className="panel">
         <div className="section-heading document-heading">

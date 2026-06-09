@@ -141,10 +141,6 @@ function PastBillsPage({ api }) {
       setSelectedItems([])
       setSelectedReceivedItems([])
       setSearchTerm('')
-
-      setTimeout(() => {
-        setMessage('')
-      }, 4000)
     } catch (err) {
       console.error('Error processing items:', err)
       setError(err.response?.data?.message || 'Failed to process items')

@@ -891,7 +891,7 @@ function App() {
             </label>
             <button disabled={loading}>Login</button>
           </form>
-          <Status message={message} error={error} />
+          <Status message={message} error={error} onClose={() => { setMessage(''); setError('') }} />
         </section>
       </main>
     )
@@ -918,7 +918,7 @@ function App() {
         </button>
       )}
 
-      <Status message={message} error={error} />
+      <Status message={message} error={error} onClose={() => { setMessage(''); setError('') }} />
 
       {page === 'home' && (
         <HomePage
@@ -1383,6 +1383,13 @@ function UnifiedSalesPage({
     setShowSuggestions(false)
   }
 
+  const handleLookupSubmit = (event) => {
+    setEntry({ ...emptySaleEntry, identifier: searchInput.trim() })
+    setSuggestions([])
+    setShowSuggestions(false)
+    onLookup(event)
+  }
+
   const totals = getTotals(items)
 
   return (
@@ -1401,7 +1408,7 @@ function UnifiedSalesPage({
       </div>
 
       <div style={{ position: 'relative', marginBottom: '20px' }}>
-        <form onSubmit={onLookup} className="inline-form compact">
+        <form onSubmit={handleLookupSubmit} className="inline-form compact">
           <input
             name="identifier"
             placeholder="Start typing: Barcode / Tag Code / Tray Code / Category Name..."
@@ -1411,7 +1418,7 @@ function UnifiedSalesPage({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                onLookup(e)
+                handleLookupSubmit(e)
               }
             }}
           />
@@ -2216,14 +2223,26 @@ function CustomerLookupInput({ value, onChange, customers }) {
   )
 }
 
-function Status({ message, error }) {
+function Status({ message, error, onClose }) {
   if (!message && !error) {
     return null
   }
 
-  return <div className={`status ${error ? 'error' : 'success'}`}>
-    {error || message}
-  </div>
+  return (
+    <div className="feedback-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className={`feedback-dialog ${error ? 'feedback-dialog-error' : 'feedback-dialog-success'}`}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="feedback-dialog-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="feedback-dialog-title">{error ? 'Action Failed' : 'Success'}</h2>
+        <p>{error || message}</p>
+        <button type="button" onClick={onClose}>OK</button>
+      </div>
+    </div>
+  )
 }
 
 function filterNames(items, value) {

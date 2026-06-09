@@ -148,6 +148,10 @@ function ReportsPage({ api }) {
     }
   }
 
+  const closePopup = () => {
+    setError('')
+  }
+
   return (
     <section className="panel">
       <div className="section-heading">
@@ -230,7 +234,21 @@ function ReportsPage({ api }) {
         </div>
       </form>
 
-      {error && <div className="status error">{error}</div>}
+      {error && (
+        <div className="feedback-backdrop" role="presentation" onClick={closePopup}>
+          <div
+            className="feedback-dialog feedback-dialog-error"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="reports-feedback-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="reports-feedback-title">Action Failed</h2>
+            <p>{error}</p>
+            <button type="button" onClick={closePopup}>OK</button>
+          </div>
+        </div>
+      )}
 
       {report && (
         <>

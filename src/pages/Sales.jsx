@@ -99,7 +99,6 @@ function SalesPage({ api }) {
       setSuggestions([])
       setShowSuggestions(false)
       setMessage(`Added ${suggestion.displayText} to cart`)
-      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to add item')
     } finally {
@@ -177,7 +176,6 @@ function SalesPage({ api }) {
     })
 
     setMessage('Old item added successfully')
-    setTimeout(() => setMessage(''), 4000)
   }
 
   const removeOldItem = (index) => {
@@ -232,8 +230,6 @@ function SalesPage({ api }) {
         receivedItems: [],
       })
       setSearchInput('')
-
-      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to complete sale')
     } finally {
@@ -257,6 +253,11 @@ function SalesPage({ api }) {
 
   const totals = calculateTotals()
 
+  const closePopup = () => {
+    setMessage('')
+    setError('')
+  }
+
   return (
     <div className="sales-container">
       <div className="sales-header">
@@ -264,8 +265,23 @@ function SalesPage({ api }) {
         <p>Enter barcode, tag code, tray code, or category name to add items</p>
       </div>
 
-      {message && <div className="alert alert-success">{message}</div>}
-      {error && <div className="alert alert-error">{error}</div>}
+      {(message || error) && (
+        <div className="popup-backdrop" role="presentation" onClick={closePopup}>
+          <div
+            className={`feedback-popup ${error ? 'feedback-popup-error' : 'feedback-popup-success'}`}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sales-feedback-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="sales-feedback-title">{error ? 'Action Failed' : 'Success'}</h2>
+            <p>{error || message}</p>
+            <button type="button" className="btn btn-primary" onClick={closePopup}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="sales-form">
         {/* Customer Name */}
