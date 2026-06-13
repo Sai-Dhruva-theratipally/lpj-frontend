@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import DocumentsPage from './pages/Documents'
 import PastBillsPage from './pages/PastBills'
 import ReportsPage from './pages/Reports'
+import CategoriesPage from './pages/Categories'
 import { printZpl } from './services/zebraBrowserPrint'
 import './App.css'
 
@@ -868,6 +869,35 @@ function App() {
     }, 'Password changed successfully')
   }
 
+  const updateCategory = async (id, updateData) => {
+    try {
+      const data = await request(`/categories/${id}`, {
+        method: 'PUT',
+        data: updateData,
+      })
+      setCategories((current) =>
+        current.map((cat) =>
+          cat._id === id ? { ...cat, ...data.data } : cat
+        )
+      )
+      return data.data
+    } catch (error) {
+      throw error
+    }
+  }
+
+  const deleteCategory = async (id) => {
+    try {
+      const response = await request(`/categories/${id}`, {
+        method: 'DELETE',
+      })
+      setCategories((current) => current.filter((cat) => cat._id !== id))
+      return response.data
+    } catch (error) {
+      throw error
+    }
+  }
+
   if (!token) {
     return (
       <main className="page narrow">
@@ -1024,6 +1054,14 @@ function App() {
       {page === 'documents' && <DocumentsPage api={api} />}
       {page === 'past-bills' && <PastBillsPage api={api} />}
       {page === 'reports' && <ReportsPage api={api} categories={categories} sellers={sellers} customers={customers} />}
+      {page === 'categories' && (
+        <CategoriesPage
+          categories={categories}
+          loading={loading}
+          onUpdate={updateCategory}
+          onDelete={deleteCategory}
+        />
+      )}
 
       {showStockConfirm && (
         <StockConfirmModal
@@ -1102,6 +1140,7 @@ function HeaderClock({ value }) {
       {value.toLocaleTimeString('en-IN', {
         hour: '2-digit',
         minute: '2-digit',
+        second: '2-digit',
         hour12: true,
       })}
     </div>
@@ -1154,6 +1193,9 @@ function HomePage({
           </button>
           <button onClick={() => setPage('documents')} style={{ minHeight: '80px' }}>
             <span>Documents</span>
+          </button>
+          <button onClick={() => setPage('categories')} style={{ minHeight: '80px' }}>
+            <span>Categories</span>
           </button>
         </div>
       </section>
@@ -2371,7 +2413,11 @@ function formatDate(value) {
     return '-'
   }
 
-  return new Date(value).toLocaleDateString()
+  const date = new Date(value)
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = date.getFullYear()
+  return `${day}/${month}/${year}`
 }
 
 function formatCurrencyPerGram(value) {
@@ -2390,6 +2436,7 @@ function formatRateTime(value) {
   return new Date(value).toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: true,
   })
 }
