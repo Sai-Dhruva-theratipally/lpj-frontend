@@ -4,6 +4,7 @@ import DocumentsPage from './pages/Documents'
 import PastBillsPage from './pages/PastBills'
 import ReportsPage from './pages/Reports'
 import CategoriesPage from './pages/Categories'
+import RateHistoryPage from './pages/RateHistory'
 import { printZpl } from './services/zebraBrowserPrint'
 import './App.css'
 
@@ -111,6 +112,24 @@ function App() {
   const [metalRates, setMetalRates] = useState(null)
   const [metalRatesLoading, setMetalRatesLoading] = useState(false)
   const [metalRatesError, setMetalRatesError] = useState('')
+  const [manualRates, setManualRates] = useState({
+    goldBuyRate: 0,
+    goldSellRate: 0,
+    silverBuyRate: 0,
+    silverSellRate: 0,
+  })
+  const [stockRates, setStockRates] = useState({
+    goldBuyRate: 0,
+    goldSellRate: 0,
+    silverBuyRate: 0,
+    silverSellRate: 0,
+  })
+  const [saleRates, setSaleRates] = useState({
+    goldBuyRate: 0,
+    goldSellRate: 0,
+    silverBuyRate: 0,
+    silverSellRate: 0,
+  })
   const [currentDateTime, setCurrentDateTime] = useState(() => new Date())
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -220,6 +239,17 @@ function App() {
     setCustomers(data.data)
   }
 
+  const loadManualRates = async () => {
+    try {
+      const data = await request('/manual-rates/latest')
+      setManualRates(data.data)
+      setStockRates(data.data)
+      setSaleRates(data.data)
+    } catch (err) {
+      // Silently fail and use defaults
+    }
+  }
+
   const loadMetalRates = async () => {
     setMetalRatesLoading(true)
     setMetalRatesError('')
@@ -254,7 +284,7 @@ function App() {
   }
 
   const refreshData = async () => {
-    await Promise.all([loadTrays(), loadTags(), loadSellers(), loadCategories(), loadCustomers()])
+    await Promise.all([loadTrays(), loadTags(), loadSellers(), loadCategories(), loadCustomers(), loadManualRates()])
   }
 
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -521,6 +551,7 @@ function App() {
         data: {
           ...stockHeader,
           sellerName: seller.name,
+          rates: stockRates,
           items: stockItems.map((stockListItem) => ({
             stockType: stockListItem.stockType,
             metalType: stockListItem.metalType,
@@ -608,8 +639,8 @@ function App() {
         throw new Error('Category is required')
       }
 
-      if (!/^\d+$/.test(String(manualTagPrint.code).trim())) {
-        throw new Error('Code must be numeric')
+      if (!String(manualTagPrint.code).trim()) {
+        throw new Error('Code is required')
       }
 
       const quantity = Number(manualTagPrint.quantity)
@@ -774,6 +805,7 @@ function App() {
         data: {
           ...saleHeader,
           customerName: customer.name,
+          rates: saleRates,
           items: saleItems.map((item) => ({
             inventoryId: item.inventoryId,
             identifier: item.identifier,
@@ -982,6 +1014,9 @@ function App() {
           onFinalSubmit={prepareStockFinalSubmit}
           loading={loading}
           metalTypeRef={metalTypeRef}
+          latestRates={manualRates}
+          rates={stockRates}
+          setRates={setStockRates}
         />
       )}
 
@@ -996,6 +1031,9 @@ function App() {
           receivedItem={saleReceivedItem}
           setReceivedItem={setSaleReceivedItem}
           receivedItems={saleReceivedItems}
+          latestRates={manualRates}
+          rates={saleRates}
+          setRates={setSaleRates}
           categories={categories}
           onLookup={lookupSaleProduct}
           onAddItem={addSaleItemToList}
@@ -1062,6 +1100,7 @@ function App() {
           onDelete={deleteCategory}
         />
       )}
+      {page === 'rate-history' && <RateHistoryPage api={api} />}
 
       {showStockConfirm && (
         <StockConfirmModal
@@ -1197,6 +1236,9 @@ function HomePage({
           <button onClick={() => setPage('categories')} style={{ minHeight: '80px' }}>
             <span>Categories</span>
           </button>
+          <button onClick={() => setPage('rate-history')} style={{ minHeight: '80px' }}>
+            <span>Rate History</span>
+          </button>
         </div>
       </section>
 
@@ -1280,6 +1322,9 @@ function UnifiedStockPage({
   onFinalSubmit,
   loading,
   metalTypeRef,
+  latestRates,
+  rates,
+  setRates,
 }) {
   const totals = getTotals(items)
 
@@ -1297,6 +1342,57 @@ function UnifiedStockPage({
           Date
           <input type="date" value={header.date} onChange={(event) => setHeader({ ...header, date: event.target.value })} />
         </label>
+      </div>
+
+      {/* Rates Section */}
+      <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--surface-muted)', borderRadius: '4px' }}>
+        <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--heading)' }}>Current Rates (₹/gram)</h4>
+        <div className="grid four compact">
+          <label>
+            Gold Buy
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.goldBuyRate}
+              onChange={(e) => setRates({ ...rates, goldBuyRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.goldBuyRate || 0}
+            />
+          </label>
+          <label>
+            Gold Sell
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.goldSellRate}
+              onChange={(e) => setRates({ ...rates, goldSellRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.goldSellRate || 0}
+            />
+          </label>
+          <label>
+            Silver Buy
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.silverBuyRate}
+              onChange={(e) => setRates({ ...rates, silverBuyRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.silverBuyRate || 0}
+            />
+          </label>
+          <label>
+            Silver Sell
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.silverSellRate}
+              onChange={(e) => setRates({ ...rates, silverSellRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.silverSellRate || 0}
+            />
+          </label>
+        </div>
       </div>
 
       <form onSubmit={onSubmitItem} className="form item-form">
@@ -1388,6 +1484,9 @@ function UnifiedSalesPage({
   onFinalSubmit,
   loading,
   api,
+  latestRates,
+  rates,
+  setRates,
 }) {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -1447,6 +1546,57 @@ function UnifiedSalesPage({
           Date
           <input type="date" value={header.date} onChange={(event) => setHeader({ ...header, date: event.target.value })} />
         </label>
+      </div>
+
+      {/* Rates Section */}
+      <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--surface-muted)', borderRadius: '4px' }}>
+        <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--heading)' }}>Current Rates (₹/gram)</h4>
+        <div className="grid four compact">
+          <label>
+            Gold Buy
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.goldBuyRate}
+              onChange={(e) => setRates({ ...rates, goldBuyRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.goldBuyRate || 0}
+            />
+          </label>
+          <label>
+            Gold Sell
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.goldSellRate}
+              onChange={(e) => setRates({ ...rates, goldSellRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.goldSellRate || 0}
+            />
+          </label>
+          <label>
+            Silver Buy
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.silverBuyRate}
+              onChange={(e) => setRates({ ...rates, silverBuyRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.silverBuyRate || 0}
+            />
+          </label>
+          <label>
+            Silver Sell
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={rates.silverSellRate}
+              onChange={(e) => setRates({ ...rates, silverSellRate: parseFloat(e.target.value) || 0 })}
+              placeholder={latestRates?.silverSellRate || 0}
+            />
+          </label>
+        </div>
       </div>
 
       <div style={{ position: 'relative', marginBottom: '20px' }}>
