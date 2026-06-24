@@ -347,7 +347,8 @@ button:disabled {
 }
 
 .filter-actions,
-.row-actions {
+.row-actions,
+.queue-actions {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -482,6 +483,15 @@ td {
   border-bottom: 1px solid var(--border);
   padding: 12px;
   text-align: left;
+}
+
+th input[type='checkbox'],
+td input[type='checkbox'] {
+  width: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 tr:hover {
@@ -672,7 +682,8 @@ tr.selected {
 
   .topbar,
   .inline-form,
-  .document-heading {
+  .document-heading,
+  .queue-actions {
     align-items: stretch;
     flex-direction: column;
   }

@@ -81,6 +81,18 @@ const emptyReprintTagFilters = {
   status: '',
 }
 
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const userAgent = navigator.userAgent || navigator.vendor || ''
+  const hasTouch = navigator.maxTouchPoints > 1
+  const compactScreen = window.matchMedia?.('(max-width: 767px)').matches
+
+  return /android|iphone|ipad|ipod|iemobile|mobile/i.test(userAgent) || (hasTouch && compactScreen)
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('lpj_token') || '')
   const [page, setPage] = useState('home')
@@ -100,6 +112,8 @@ function App() {
   const [tagFilters, setTagFilters] = useState(emptyTagFilters)
   const [reprintTagFilters, setReprintTagFilters] = useState(emptyReprintTagFilters)
   const [reprintTags, setReprintTags] = useState([])
+  const [printQueueTags, setPrintQueueTags] = useState([])
+  const [selectedPrintQueueIds, setSelectedPrintQueueIds] = useState([])
   const [trays, setTrays] = useState([])
   const [tags, setTags] = useState([])
   const [categories, setCategories] = useState([])
@@ -178,7 +192,9 @@ function App() {
 
     try {
       await action()
-      setMessage(successMessage)
+      if (successMessage) {
+        setMessage(successMessage)
+      }
     } catch (err) {
       setError(err.response?.data?.message || err.message)
     } finally {
@@ -225,6 +241,12 @@ function App() {
 
     const data = await request(`/inventory/tags?${query.toString()}`)
     setReprintTags(data.data.items)
+  }
+
+  const loadPrintQueue = async () => {
+    const data = await request('/inventory/tags?printStatus=PENDING_PRINT&status=AVAILABLE&limit=100')
+    setPrintQueueTags(data.data.items)
+    setSelectedPrintQueueIds((current) => current.filter((id) => data.data.items.some((tag) => tag._id === id)))
   }
 
   const loadSellers = async () => {
@@ -287,7 +309,7 @@ function App() {
   }
 
   const refreshData = async () => {
-    await Promise.all([loadTrays(), loadTags(), loadSellers(), loadCategories(), loadCustomers(), loadManualRates()])
+    await Promise.all([loadTrays(), loadTags(), loadPrintQueue(), loadSellers(), loadCategories(), loadCustomers(), loadManualRates()])
   }
 
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -557,11 +579,13 @@ function App() {
   const confirmStockSave = () => {
     runAction(async () => {
       const seller = await ensureSeller(stockHeader.sellerName)
+      const shouldQueuePrint = isMobileDevice()
       const data = await request('/inventory/stock-transactions', {
         method: 'POST',
         data: {
           ...stockHeader,
           sellerName: seller.name,
+          printMode: shouldQueuePrint ? 'QUEUE' : 'PRINT',
           items: stockItems.map((stockListItem) => ({
             stockType: stockListItem.stockType,
             metalType: stockListItem.metalType,
@@ -582,13 +606,37 @@ function App() {
       setShowStockConfirm(false)
       await refreshData()
 
+      if (shouldQueuePrint && tagPrintItems.length > 0) {
+        setMessage(`${tagPrintItems.length} tag label(s) added to Print Queue`)
+        setPage('print-queue')
+        return
+      }
+
       if (tagPrintItems.length > 0 && window.confirm(`Print ${tagPrintItems.length} newly added tag label(s)?`)) {
         await printBatchItems(tagPrintItems)
+        return
       }
-    }, 'Stock transaction saved')
+
+      setMessage('Stock transaction saved')
+    }, '')
   }
 
-  const printBatchItems = (items, successMessage = 'Labels sent to Zebra printer') => {
+  const markTagsPrinted = async (items) => {
+    const ids = items
+      .map((item) => item.inventoryId || item._id || item.tagId)
+      .filter(Boolean)
+
+    if (ids.length === 0) {
+      return
+    }
+
+    await request('/inventory/tags/print-status', {
+      method: 'PATCH',
+      data: { ids, status: 'PRINTED' },
+    })
+  }
+
+  const printBatchItems = (items, successMessage = 'Labels sent to Zebra printer', options = {}) => {
     if (!items.length) {
       setError('No labels selected for printing')
       return
@@ -602,17 +650,49 @@ function App() {
         },
       })
       await printZpl(data.data.zpl)
+      if (options.markPrinted) {
+        await markTagsPrinted(items)
+        await Promise.all([loadPrintQueue(), loadTags()])
+      }
     }, successMessage)
   }
 
-  const printSingleInventoryItem = (item) => {
+  const printSingleInventoryItem = (item, options = {}) => {
     runAction(async () => {
       const data = await request('/print/tag', {
         method: 'POST',
         data: getPrintPayload(item),
       })
       await printZpl(data.data.zpl)
-    }, '')
+      if (options.markPrinted) {
+        await markTagsPrinted([item])
+        await Promise.all([loadPrintQueue(), loadTags()])
+      }
+    }, options.successMessage || '')
+  }
+
+  const togglePrintQueueSelection = (id) => {
+    setSelectedPrintQueueIds((current) => (
+      current.includes(id) ? current.filter((itemId) => itemId !== id) : [...current, id]
+    ))
+  }
+
+  const toggleAllPrintQueueSelection = () => {
+    setSelectedPrintQueueIds((current) => (
+      current.length === printQueueTags.length ? [] : printQueueTags.map((tag) => tag._id)
+    ))
+  }
+
+  const printSelectedQueueItems = () => {
+    const selectedItems = printQueueTags.filter((tag) => selectedPrintQueueIds.includes(tag._id))
+    printBatchItems(selectedItems, 'Queued labels sent to Zebra printer', { markPrinted: true })
+  }
+
+  const printSingleQueueItem = (tag) => {
+    printSingleInventoryItem({ ...tag, stockType: 'TAG' }, {
+      markPrinted: true,
+      successMessage: 'Queued label sent to Zebra printer',
+    })
   }
 
   const applyReprintTagFilters = (event) => {
@@ -1013,6 +1093,7 @@ function App() {
           changePasswordForm={changePasswordForm}
           setChangePasswordForm={setChangePasswordForm}
           changePassword={changePassword}
+          pendingPrintCount={printQueueTags.length}
         />
       )}
 
@@ -1087,6 +1168,19 @@ function App() {
           onPrint={printSingleInventoryItem}
           onPrintAll={() => printBatchItems(reprintTags, 'Reprint labels sent to Zebra printer')}
           onClearResults={() => setReprintTags([])}
+          loading={loading}
+        />
+      )}
+
+      {page === 'print-queue' && (
+        <PrintQueuePage
+          tags={printQueueTags}
+          selectedIds={selectedPrintQueueIds}
+          onRefresh={() => runAction(loadPrintQueue, 'Print queue refreshed')}
+          onToggle={togglePrintQueueSelection}
+          onToggleAll={toggleAllPrintQueueSelection}
+          onPrintSelected={printSelectedQueueItems}
+          onPrintOne={printSingleQueueItem}
           loading={loading}
         />
       )}
@@ -1217,6 +1311,7 @@ function HomePage({
   changePasswordForm,
   setChangePasswordForm,
   changePassword,
+  pendingPrintCount,
 }) {
   const canChangePassword =
     changePasswordForm.currentPassword &&
@@ -1249,6 +1344,9 @@ function HomePage({
           </button>
           <button onClick={() => setPage('reprint-tags')} style={{ minHeight: '80px' }}>
             <span>Reprint Tags</span>
+          </button>
+          <button onClick={() => setPage('print-queue')} style={{ minHeight: '80px' }}>
+            <span>Print Queue{pendingPrintCount ? ` (${pendingPrintCount})` : ''}</span>
           </button>
           <button onClick={() => setPage('reports')} style={{ minHeight: '80px' }}>
             <span>Reports</span>
@@ -1924,6 +2022,93 @@ function ReprintTagsPage({
         </table>
       </div>
       {tags.length === 0 && <p style={{ textAlign: 'center', color: '#999', marginTop: '20px' }}>No tags selected for reprint</p>}
+    </section>
+  )
+}
+
+function PrintQueuePage({
+  tags,
+  selectedIds,
+  onRefresh,
+  onToggle,
+  onToggleAll,
+  onPrintSelected,
+  onPrintOne,
+  loading,
+}) {
+  const allSelected = tags.length > 0 && selectedIds.length === tags.length
+
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <h2>Print Queue</h2>
+        <div className="queue-actions">
+          <button type="button" className="secondary" onClick={onRefresh} disabled={loading}>Refresh</button>
+          <button type="button" onClick={onPrintSelected} disabled={loading || selectedIds.length === 0}>
+            Print Selected ({selectedIds.length})
+          </button>
+        </div>
+      </div>
+      <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>
+        Pending mobile-added tag labels can be printed from a desktop Zebra setup.
+      </p>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Select all pending tags"
+                  checked={allSelected}
+                  onChange={onToggleAll}
+                  disabled={tags.length === 0}
+                />
+              </th>
+              <th>Tag Code</th>
+              <th>Metal</th>
+              <th>Category</th>
+              <th>Code</th>
+              <th>Gross Weight</th>
+              <th>Stone Weight</th>
+              <th>Seller</th>
+              <th>Queued</th>
+              <th>Prints</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tags.map((tag) => (
+              <tr key={tag._id} className={selectedIds.includes(tag._id) ? 'selected' : ''}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select tag ${tag.tagId}`}
+                    checked={selectedIds.includes(tag._id)}
+                    onChange={() => onToggle(tag._id)}
+                  />
+                </td>
+                <td><strong>{tag.tagId}</strong></td>
+                <td>{tag.metalType}</td>
+                <td>{tag.category}</td>
+                <td>{tag.categoryCode || '-'}</td>
+                <td>{tag.weight}</td>
+                <td>{tag.stoneWeight ?? 0}</td>
+                <td>{tag.sellerName}</td>
+                <td>{formatDate(tag.printQueuedAt || tag.purchaseDate)}</td>
+                <td>{tag.printCount || 0}</td>
+                <td>
+                  <button className="secondary" onClick={() => onPrintOne(tag)} disabled={loading}>
+                    Print
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {tags.length === 0 && <p style={{ textAlign: 'center', color: '#999', marginTop: '20px' }}>No pending tags in print queue</p>}
     </section>
   )
 }
