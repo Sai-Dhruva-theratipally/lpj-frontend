@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import DocumentsPage from './pages/Documents'
 import PastBillsPage from './pages/PastBills'
+import SoldItemsPage from './pages/SoldItems'
 import ReportsPage from './pages/Reports'
 import CategoriesPage from './pages/Categories'
 import RateHistoryPage from './pages/RateHistory'
@@ -26,6 +27,7 @@ const emptyStockItem = {
   quantity: 1,
   weight: '',
   stoneWeight: 0,
+  rate: '',
 }
 
 const emptySaleHeader = {
@@ -46,6 +48,7 @@ const emptySaleEntry = {
   availableWeight: 0,
   availableStoneWeight: 0,
   available: false,
+  rate: '',
 }
 
 const emptyReceivedItem = {
@@ -471,6 +474,8 @@ function App() {
       const category = await ensureCategory(stockItem, stockItem.stockType)
       const grossWeight = Number(stockItem.weight)
       const stoneWeight = Number(stockItem.stoneWeight || 0)
+      const rateInput = String(stockItem.rate ?? '').trim()
+      const rate = stockItem.metalType !== 'OTHERS' && rateInput !== '' ? Number(rateInput) : undefined
 
       if (!Number.isFinite(grossWeight) || grossWeight <= 0) {
         throw new Error('Gross weight must be greater than 0')
@@ -478,6 +483,10 @@ function App() {
 
       if (!Number.isFinite(stoneWeight) || stoneWeight < 0) {
         throw new Error('Stone weight must be greater than or equal to 0')
+      }
+
+      if (rateInput !== '' && (!Number.isFinite(rate) || rate < 0)) {
+        throw new Error('Rate must be a non-negative number')
       }
 
       const item = {
@@ -489,6 +498,7 @@ function App() {
         quantity: Number(stockItem.quantity),
         weight: grossWeight,
         stoneWeight,
+        rate,
         sellerName: seller.name,
         date: stockHeader.date,
       }
@@ -522,6 +532,7 @@ function App() {
       quantity: item.quantity,
       weight: item.weight,
       stoneWeight: item.stoneWeight ?? 0,
+      rate: item.rate ?? '',
     })
     setEditingStockIndex(index)
   }
@@ -551,7 +562,6 @@ function App() {
         data: {
           ...stockHeader,
           sellerName: seller.name,
-          rates: stockRates,
           items: stockItems.map((stockListItem) => ({
             stockType: stockListItem.stockType,
             metalType: stockListItem.metalType,
@@ -561,6 +571,7 @@ function App() {
             quantity: stockListItem.quantity,
             weight: stockListItem.weight,
             stoneWeight: stockListItem.stoneWeight ?? 0,
+            rate: stockListItem.rate,
           })),
         },
       })
@@ -690,6 +701,7 @@ function App() {
         availableWeight: item.weight,
         availableStoneWeight: item.stoneWeight || 0,
         available: item.available,
+        rate: '',
       })
     }, 'Product details loaded')
   }
@@ -705,6 +717,8 @@ function App() {
     const quantity = Number(saleEntry.quantity)
     const weight = Number(saleEntry.weight)
     const stoneWeight = Number(saleEntry.stoneWeight || 0)
+    const rateInput = String(saleEntry.rate ?? '').trim()
+    const rate = saleEntry.metalType !== 'OTHERS' && rateInput !== '' ? Number(rateInput) : undefined
 
     if (!Number.isFinite(weight) || weight <= 0) {
       setError('Gross weight must be greater than 0')
@@ -713,6 +727,11 @@ function App() {
 
     if (!Number.isFinite(stoneWeight) || stoneWeight < 0) {
       setError('Stone weight must be greater than or equal to 0')
+      return
+    }
+
+    if (rateInput !== '' && (!Number.isFinite(rate) || rate < 0)) {
+      setError('Rate must be a non-negative number')
       return
     }
 
@@ -736,7 +755,7 @@ function App() {
       return
     }
 
-    setSaleItems((current) => [...current, { ...saleEntry, quantity, weight, stoneWeight }])
+    setSaleItems((current) => [...current, { ...saleEntry, quantity, weight, stoneWeight, rate }])
     setSaleEntry(emptySaleEntry)
     setMessage('Item added to sale list')
     setError('')
@@ -805,13 +824,13 @@ function App() {
         data: {
           ...saleHeader,
           customerName: customer.name,
-          rates: saleRates,
           items: saleItems.map((item) => ({
             inventoryId: item.inventoryId,
             identifier: item.identifier,
             quantity: item.quantity,
             weight: item.weight,
             stoneWeight: item.stoneWeight ?? 0,
+            rate: item.rate,
           })),
           receivedItems: saleReceivedItems.map((item) => ({
             itemType: item.itemType,
@@ -1091,6 +1110,7 @@ function App() {
 
       {page === 'documents' && <DocumentsPage api={api} />}
       {page === 'past-bills' && <PastBillsPage api={api} />}
+      {page === 'sold-items' && <SoldItemsPage api={api} />}
       {page === 'reports' && <ReportsPage api={api} categories={categories} sellers={sellers} customers={customers} />}
       {page === 'categories' && (
         <CategoriesPage
@@ -1221,6 +1241,9 @@ function HomePage({
           <button onClick={() => setPage('past-bills')} style={{ minHeight: '80px' }}>
             <span>View Past Bills</span>
           </button>
+          <button onClick={() => setPage('sold-items')} style={{ minHeight: '80px' }}>
+            <span>Sold Items</span>
+          </button>
           <button onClick={() => setPage('manual-tag-print')} style={{ minHeight: '80px' }}>
             <span>Print Text Tags</span>
           </button>
@@ -1344,57 +1367,6 @@ function UnifiedStockPage({
         </label>
       </div>
 
-      {/* Rates Section */}
-      <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--surface-muted)', borderRadius: '4px' }}>
-        <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--heading)' }}>Current Rates (₹/gram)</h4>
-        <div className="grid four compact">
-          <label>
-            Gold Buy
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.goldBuyRate}
-              onChange={(e) => setRates({ ...rates, goldBuyRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.goldBuyRate || 0}
-            />
-          </label>
-          <label>
-            Gold Sell
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.goldSellRate}
-              onChange={(e) => setRates({ ...rates, goldSellRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.goldSellRate || 0}
-            />
-          </label>
-          <label>
-            Silver Buy
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.silverBuyRate}
-              onChange={(e) => setRates({ ...rates, silverBuyRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.silverBuyRate || 0}
-            />
-          </label>
-          <label>
-            Silver Sell
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.silverSellRate}
-              onChange={(e) => setRates({ ...rates, silverSellRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.silverSellRate || 0}
-            />
-          </label>
-        </div>
-      </div>
-
       <form onSubmit={onSubmitItem} className="form item-form">
         <label>
           Metal Type
@@ -1448,6 +1420,19 @@ function UnifiedStockPage({
             onChange={(event) => setItem({ ...item, stoneWeight: event.target.value })}
           />
         </label>
+        {item.metalType !== 'OTHERS' && (
+          <label>
+            Rate
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={item.rate}
+              onChange={(event) => setItem({ ...item, rate: event.target.value })}
+              placeholder="Optional"
+            />
+          </label>
+        )}
         <button disabled={loading}>{editingIndex === null ? 'Add To List' : 'Update Item'}</button>
       </form>
 
@@ -1546,57 +1531,6 @@ function UnifiedSalesPage({
           Date
           <input type="date" value={header.date} onChange={(event) => setHeader({ ...header, date: event.target.value })} />
         </label>
-      </div>
-
-      {/* Rates Section */}
-      <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--surface-muted)', borderRadius: '4px' }}>
-        <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--heading)' }}>Current Rates (₹/gram)</h4>
-        <div className="grid four compact">
-          <label>
-            Gold Buy
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.goldBuyRate}
-              onChange={(e) => setRates({ ...rates, goldBuyRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.goldBuyRate || 0}
-            />
-          </label>
-          <label>
-            Gold Sell
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.goldSellRate}
-              onChange={(e) => setRates({ ...rates, goldSellRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.goldSellRate || 0}
-            />
-          </label>
-          <label>
-            Silver Buy
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.silverBuyRate}
-              onChange={(e) => setRates({ ...rates, silverBuyRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.silverBuyRate || 0}
-            />
-          </label>
-          <label>
-            Silver Sell
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={rates.silverSellRate}
-              onChange={(e) => setRates({ ...rates, silverSellRate: parseFloat(e.target.value) || 0 })}
-              placeholder={latestRates?.silverSellRate || 0}
-            />
-          </label>
-        </div>
       </div>
 
       <div style={{ position: 'relative', marginBottom: '20px' }}>
@@ -1727,6 +1661,19 @@ function UnifiedSalesPage({
               onChange={(event) => setEntry({ ...entry, stoneWeight: event.target.value })}
             />
           </label>
+          {entry.metalType && entry.metalType !== 'OTHERS' && (
+            <label>
+              Rate (₹/gram)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={entry.rate}
+                onChange={(event) => setEntry({ ...entry, rate: event.target.value })}
+                placeholder="Optional"
+              />
+            </label>
+          )}
           <label>
             Date
             <input type="date" value={header.date} readOnly />
@@ -2252,6 +2199,7 @@ function StockItemTable({ items, onEdit, onRemove }) {
             <th>Quantity</th>
             <th>Gross Weight</th>
             <th>Stone Weight</th>
+            <th>Rate</th>
             <th>Seller</th>
             <th>Date</th>
             {(onEdit || onRemove) && <th>Actions</th>}
@@ -2266,6 +2214,7 @@ function StockItemTable({ items, onEdit, onRemove }) {
               <td>{item.quantity}</td>
               <td>{item.weight}</td>
               <td>{item.stoneWeight ?? 0}</td>
+              <td>{item.rate ?? '-'}</td>
               <td>{item.sellerName}</td>
               <td>{formatDate(item.date)}</td>
               {(onEdit || onRemove) && (
@@ -2301,6 +2250,7 @@ function SaleItemTable({ items, onRemove }) {
             <th>Quantity</th>
             <th>Gross Weight</th>
             <th>Stone Weight</th>
+            <th>Rate</th>
             {onRemove && <th>Actions</th>}
           </tr>
         </thead>
@@ -2314,6 +2264,7 @@ function SaleItemTable({ items, onRemove }) {
               <td>{item.quantity}</td>
               <td>{item.weight}</td>
               <td>{item.stoneWeight ?? 0}</td>
+              <td>{item.rate ?? '-'}</td>
               {onRemove && (
                 <td>
                   <button className="secondary" onClick={() => onRemove(index)}>Remove</button>

@@ -85,6 +85,7 @@ function SalesPage({ api }) {
         weight: inventory.stockType === 'TAG' ? inventory.weight : inventory.weight,
         grossWeight: inventory.grossWeight,
         stoneWeight: inventory.stoneWeight || 0,
+        rate: '',
         sellerName: inventory.sellerName,
         status: inventory.status,
         available: inventory.available,
@@ -215,6 +216,7 @@ function SalesPage({ api }) {
             weight: item.weight,
             stoneWeight: item.stoneWeight,
           }),
+          rate: item.rate,
         })),
         ...(formData.receivedItems.length > 0 && {
           receivedItems: formData.receivedItems,
@@ -365,12 +367,13 @@ function SalesPage({ api }) {
               <div className="items-table-header">
                 <div className="col-identifier">Item</div>
                 <div className="col-type">Type</div>
-                <div className="col-category">Category</div>
-                <div className="col-quantity">Qty</div>
-                <div className="col-weight">Weight (g)</div>
-                <div className="col-stone">Stone (g)</div>
-                <div className="col-action">Action</div>
-              </div>
+              <div className="col-category">Category</div>
+              <div className="col-quantity">Qty</div>
+              <div className="col-weight">Weight (g)</div>
+              <div className="col-stone">Stone (g)</div>
+              <div className="col-rate">Rate</div>
+              <div className="col-action">Action</div>
+            </div>
 
               {formData.items.map((item, index) => (
                 <div key={index} className="items-table-row">
@@ -418,6 +421,27 @@ function SalesPage({ api }) {
                       />
                     ) : (
                       <span>{item.stoneWeight}</span>
+                    )}
+                  </div>
+                  <div className="col-rate">
+                    {item.metalType && item.metalType !== 'OTHERS' ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={item.rate}
+                        onChange={(e) =>
+                          setFormData((prev) => {
+                            const newItems = [...prev.items]
+                            newItems[index].rate = e.target.value
+                            return { ...prev, items: newItems }
+                          })
+                        }
+                        className="input-small"
+                        placeholder="Optional"
+                      />
+                    ) : (
+                      <span>-</span>
                     )}
                   </div>
                   <div className="col-action">
