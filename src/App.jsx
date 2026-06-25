@@ -56,7 +56,7 @@ const emptyReceivedItem = {
   metalType: 'GOLD',
   category: '',
   weight: '',
-  purity: '',
+  purity: '100',
 }
 
 const emptyTagFilters = {
@@ -752,40 +752,6 @@ function App() {
     }, 'Manual tag labels sent to Zebra printer')
   }
 
-  const lookupSaleProduct = (event) => {
-    event.preventDefault()
-    runAction(async () => {
-      const submittedIdentifier = event.currentTarget.elements.identifier?.value?.trim() || saleEntry.identifier
-
-      if (!submittedIdentifier) {
-        throw new Error('Barcode or inventory id is required')
-      }
-
-      const data = await request(`/inventory/lookup/${encodeURIComponent(submittedIdentifier)}`)
-      const item = data.data
-      const defaultQuantity = item.stockType === 'TAG' ? 1 : Number(item.quantity)
-      const defaultWeight = Number(item.weight)
-      const defaultStoneWeight = 0
-
-      setSaleEntry({
-        identifier: String(item.identifier),
-        inventoryId: item.inventoryId,
-        stockType: item.stockType,
-        category: item.category,
-        categoryCode: item.categoryCode,
-        metalType: item.metalType,
-        quantity: defaultQuantity,
-        weight: defaultWeight,
-        stoneWeight: defaultStoneWeight,
-        availableQuantity: item.quantity,
-        availableWeight: item.weight,
-        availableStoneWeight: item.stoneWeight || 0,
-        available: item.available,
-        rate: '',
-      })
-    }, 'Product details loaded')
-  }
-
   const addSaleItemToList = (event) => {
     event.preventDefault()
 
@@ -864,19 +830,13 @@ function App() {
       return
     }
 
-    if (saleReceivedItem.itemType === 'OLD_ORNAMENT' && !purity) {
-      setError('Purity is required for old ornaments')
-      setMessage('')
-      return
-    }
-
     setSaleReceivedItems((current) => [
       ...current,
       {
         ...saleReceivedItem,
         category,
         weight,
-        purity: saleReceivedItem.itemType === 'OLD_ORNAMENT' ? purity : '',
+        purity,
       },
     ])
     setSaleReceivedItem(emptyReceivedItem)
@@ -917,7 +877,7 @@ function App() {
             metalType: item.metalType,
             category: item.category,
             weight: item.weight,
-            purity: item.itemType === 'OLD_ORNAMENT' ? item.purity : '',
+            purity: item.purity || '',
           })),
         },
       })
@@ -1135,7 +1095,6 @@ function App() {
           rates={saleRates}
           setRates={setSaleRates}
           categories={categories}
-          onLookup={lookupSaleProduct}
           onAddItem={addSaleItemToList}
           onRemoveItem={removeSaleItem}
           onAddReceivedItem={addReceivedItemToSale}
@@ -1559,7 +1518,6 @@ function UnifiedSalesPage({
   setReceivedItem,
   receivedItems,
   categories,
-  onLookup,
   onAddItem,
   onRemoveItem,
   onAddReceivedItem,
@@ -1574,6 +1532,7 @@ function UnifiedSalesPage({
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [searchInput, setSearchInput] = useState('')
+  const [lookupLoading, setLookupLoading] = useState(false)
 
   // Fetch suggestions on search input change
   useEffect(() => {
@@ -1600,18 +1559,42 @@ function UnifiedSalesPage({
     return () => clearTimeout(timeoutId)
   }, [searchInput, api])
 
-  const handleSearchSelect = (suggestion) => {
+  const handleSearchSelect = async (suggestion) => {
     setSearchInput(suggestion.value)
-    setEntry({ ...emptySaleEntry, identifier: suggestion.value })
     setSuggestions([])
     setShowSuggestions(false)
-  }
+    setLookupLoading(true)
 
-  const handleLookupSubmit = (event) => {
-    setEntry({ ...emptySaleEntry, identifier: searchInput.trim() })
-    setSuggestions([])
-    setShowSuggestions(false)
-    onLookup(event)
+    try {
+      const response = await api.get(`/inventory/lookup/${encodeURIComponent(suggestion.value)}`)
+      const item = response.data.data
+      const defaultQuantity = item.stockType === 'TAG' ? 1 : Number(item.quantity)
+      const defaultWeight = Number(item.weight)
+
+      setEntry({
+        identifier: String(item.identifier),
+        inventoryId: item.inventoryId,
+        stockType: item.stockType,
+        category: item.category,
+        categoryCode: item.categoryCode,
+        metalType: item.metalType,
+        quantity: defaultQuantity,
+        weight: defaultWeight,
+        stoneWeight: 0,
+        availableQuantity: item.quantity,
+        availableWeight: item.weight,
+        availableStoneWeight: item.stoneWeight || 0,
+        available: item.available,
+        rate: '',
+      })
+    } catch (err) {
+      setEntry({ ...emptySaleEntry, identifier: suggestion.value })
+      setSuggestions([])
+      setShowSuggestions(false)
+      console.error('Error loading selected inventory:', err)
+    } finally {
+      setLookupLoading(false)
+    }
   }
 
   const totals = getTotals(items)
@@ -1632,22 +1615,29 @@ function UnifiedSalesPage({
       </div>
 
       <div style={{ position: 'relative', marginBottom: '20px' }}>
-        <form onSubmit={handleLookupSubmit} className="inline-form compact">
+        <div className="inline-form compact">
           <input
             name="identifier"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="characters"
+            spellCheck="false"
             placeholder="Start typing: Barcode / Tag Code / Tray Code / Category Name..."
             value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+            onChange={(event) => {
+              setSearchInput(event.target.value)
+              setEntry(emptySaleEntry)
+            }}
             onFocus={() => searchInput && setShowSuggestions(true)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                handleLookupSubmit(e)
               }
             }}
+            disabled={lookupLoading}
           />
-          <button disabled={loading || !searchInput.trim()}>Fetch</button>
-        </form>
+          {lookupLoading && <span className="search-loading">Loading...</span>}
+        </div>
 
         {showSuggestions && suggestions.length > 0 && (
           <div style={{
@@ -1818,16 +1808,14 @@ function UnifiedSalesPage({
               onChange={(event) => setReceivedItem({ ...receivedItem, weight: event.target.value })}
             />
           </label>
-          {receivedItem.itemType === 'OLD_ORNAMENT' && (
-            <label>
-              Purity
-              <input
-                value={receivedItem.purity}
-                onChange={(event) => setReceivedItem({ ...receivedItem, purity: event.target.value })}
-                placeholder="Example: 22K or 916"
-              />
-            </label>
-          )}
+          <label>
+            Purity
+            <input
+              value={receivedItem.purity}
+              onChange={(event) => setReceivedItem({ ...receivedItem, purity: event.target.value })}
+              placeholder="Example: 24K, 22K or 916"
+            />
+          </label>
           <button disabled={loading}>
             Add Received Item
           </button>
