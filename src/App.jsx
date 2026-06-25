@@ -6,6 +6,7 @@ import SoldItemsPage from './pages/SoldItems'
 import ReportsPage from './pages/Reports'
 import CategoriesPage from './pages/Categories'
 import RateHistoryPage from './pages/RateHistory'
+import AISaleImportPage from './pages/AISaleImport'
 import { printZpl } from './services/zebraBrowserPrint'
 import './App.css'
 
@@ -1135,6 +1136,10 @@ function App() {
         <BulkSaleImportPage api={api} onComplete={refreshData} />
       )}
 
+      {page === 'ai-sale-import' && (
+        <AISaleImportPage api={api} onComplete={refreshData} />
+      )}
+
       {page === 'print-queue' && (
         <PrintQueuePage
           tags={printQueueTags}
@@ -1298,6 +1303,9 @@ function HomePage({
           </button>
           <button onClick={() => setPage('bulk-sale-import')} style={{ minHeight: '80px' }}>
             <span>Bulk Sale Import</span>
+          </button>
+          <button onClick={() => setPage('ai-sale-import')} style={{ minHeight: '80px' }}>
+            <span>AI Sale Import</span>
           </button>
           <button onClick={() => setPage('past-bills')} style={{ minHeight: '80px' }}>
             <span>View Past Bills</span>

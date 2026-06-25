@@ -606,6 +606,25 @@ tr.selected {
   font-size: 13px;
 }
 
+.ai-upload-summary {
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  min-height: 70px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.ai-upload-summary span {
+  color: var(--muted-text);
+  font-size: 13px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .details {
   display: grid;
   grid-template-columns: 120px 1fr;
