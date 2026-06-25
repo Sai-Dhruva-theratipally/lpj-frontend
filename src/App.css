@@ -529,6 +529,83 @@ tr.selected {
   color: #c62828;
 }
 
+.badge.valid {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.badge.invalid {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.badge.pending {
+  background: #fff3cd;
+  color: #8a5d00;
+}
+
+.bulk-errors {
+  min-width: 220px;
+  color: #9a2d2d;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.bulk-value-cell {
+  min-width: 140px;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.bulk-edit-modal {
+  width: min(980px, 100%);
+}
+
+.bulk-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.bulk-preview-list {
+  display: grid;
+  gap: 16px;
+}
+
+.bulk-preview-bill {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-strong);
+}
+
+.bulk-preview-bill h3 {
+  margin: 0 0 6px;
+  color: var(--heading);
+}
+
+.bulk-preview-bill p {
+  margin: 0 0 12px;
+  color: var(--muted-text);
+  font-size: 14px;
+}
+
+.bulk-help-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.bulk-example-grid {
+  margin-top: 18px;
+}
+
+.bulk-example-grid textarea {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+}
+
 .details {
   display: grid;
   grid-template-columns: 120px 1fr;
@@ -693,6 +770,10 @@ tr.selected {
   .queue-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .bulk-edit-grid {
+    grid-template-columns: 1fr;
   }
 
   .metal-rates {

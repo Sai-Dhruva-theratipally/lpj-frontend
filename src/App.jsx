@@ -1131,6 +1131,10 @@ function App() {
         />
       )}
 
+      {page === 'bulk-sale-import' && (
+        <BulkSaleImportPage api={api} onComplete={refreshData} />
+      )}
+
       {page === 'print-queue' && (
         <PrintQueuePage
           tags={printQueueTags}
@@ -1291,6 +1295,9 @@ function HomePage({
           </button>
           <button onClick={() => setPage('sales')} style={{ minHeight: '80px' }}>
             <span>Sales</span>
+          </button>
+          <button onClick={() => setPage('bulk-sale-import')} style={{ minHeight: '80px' }}>
+            <span>Bulk Sale Import</span>
           </button>
           <button onClick={() => setPage('past-bills')} style={{ minHeight: '80px' }}>
             <span>View Past Bills</span>
@@ -1809,11 +1816,15 @@ function UnifiedSalesPage({
             />
           </label>
           <label>
-            Purity
+            Purity (%)
             <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
               value={receivedItem.purity}
               onChange={(event) => setReceivedItem({ ...receivedItem, purity: event.target.value })}
-              placeholder="Example: 24K, 22K or 916"
+              placeholder="Example: 91.6 or 100"
             />
           </label>
           <button disabled={loading}>
@@ -1882,6 +1893,427 @@ function ManualTagPrintPage({ form, setForm, onSubmit, onClear, loading }) {
           Print
         </button>
       </form>
+    </section>
+  )
+}
+
+const bulkSaleColumns = [
+  ['serialNo', 'S.No'],
+  ['customerName', 'Customer Name'],
+  ['date', 'Date'],
+  ['barcode', 'Barcode'],
+  ['quantity', 'Quantity'],
+  ['grossWeight', 'Gross Weight'],
+  ['stoneWeight', 'Stone Weight'],
+  ['rate', 'Rate'],
+  ['receivedItemType', 'Received Item Type'],
+  ['receivedMetal', 'Received Metal'],
+  ['receivedCategory', 'Received Category'],
+  ['receivedWeight', 'Received Weight'],
+  ['purity', 'Purity (%)'],
+]
+
+function BulkSaleImportPage({ api, onComplete }) {
+  const [jsonText, setJsonText] = useState('')
+  const [rows, setRows] = useState([])
+  const [editingRowIndex, setEditingRowIndex] = useState(null)
+  const [editDraft, setEditDraft] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [result, setResult] = useState(null)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const allRowsValid = rows.length > 0 && rows.every((row) => row.status === 'VALID')
+  const invalidCount = rows.filter((row) => row.status === 'INVALID').length
+
+  const runBulkAction = async (action) => {
+    setLoading(true)
+    setError('')
+    setMessage('')
+
+    try {
+      await action()
+    } catch (err) {
+      setError(err.response?.data?.message || err.message)
+      if (err.response?.data?.data?.rows) {
+        setRows(err.response.data.data.rows)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const parseJson = () => runBulkAction(async () => {
+    const response = await api.post('/inventory/bulk-sales/parse', { jsonText })
+    setRows(response.data.data.rows)
+    setPreview(null)
+    setResult(null)
+    setMessage(`${response.data.data.rows.length} row(s) parsed`)
+  })
+
+  const validateRows = (nextRows = rows) => runBulkAction(async () => {
+    const response = await api.post('/inventory/bulk-sales/validate', { rows: nextRows })
+    setRows(response.data.data.rows)
+    setPreview(null)
+    setResult(null)
+    setMessage(`${response.data.data.validCount} valid, ${response.data.data.invalidCount} invalid`)
+  })
+
+  const updateRow = (rowIndex, field, value) => {
+    setRows((current) => current.map((row, index) => (
+      index === rowIndex
+        ? { ...row, [field]: value, status: 'PENDING', errors: [], saleItem: null, inventory: null }
+        : row
+    )))
+    setPreview(null)
+    setResult(null)
+  }
+
+  const openEditRow = (rowIndex) => {
+    setEditingRowIndex(rowIndex)
+    setEditDraft({ ...rows[rowIndex] })
+  }
+
+  const closeEditRow = () => {
+    setEditingRowIndex(null)
+    setEditDraft(null)
+  }
+
+  const saveEditRow = () => {
+    if (editingRowIndex === null || !editDraft) {
+      return null
+    }
+
+    const savedIndex = editingRowIndex
+    const nextRows = rows.map((row, index) => (
+      index === savedIndex
+        ? { ...row, ...editDraft, status: 'PENDING', errors: [], saleItem: null, inventory: null }
+        : row
+    ))
+    setRows(nextRows)
+    setPreview(null)
+    setResult(null)
+    closeEditRow()
+    return { savedIndex, nextRows }
+  }
+
+  const revalidateRow = (rowIndex) => {
+    validateRows(rows.map((row, index) => (
+      index === rowIndex ? { ...row, status: undefined, errors: [] } : row
+    )))
+  }
+
+  const generatePreview = () => runBulkAction(async () => {
+    const response = await api.post('/inventory/bulk-sales/preview', { rows })
+    setRows(response.data.data.rows)
+    if (!response.data.data.isValid) {
+      setPreview(null)
+      setMessage(`${response.data.data.validCount} valid, ${response.data.data.invalidCount} invalid`)
+      return
+    }
+    setPreview(response.data.data)
+    setResult(null)
+    setMessage(`${response.data.data.bills.length} bill(s) ready for confirmation`)
+  })
+
+  const createSales = () => runBulkAction(async () => {
+    if (!window.confirm('Create all validated sales now?')) {
+      return
+    }
+
+    const response = await api.post('/inventory/bulk-sales/create', { rows })
+    setResult(response.data.data)
+    setPreview(null)
+    setRows([])
+    setJsonText('')
+    setMessage(`${response.data.data.createdCount} sale bill(s) created`)
+    await onComplete()
+  })
+
+  const clearImport = () => {
+    setJsonText('')
+    setRows([])
+    setPreview(null)
+    setResult(null)
+    setMessage('')
+    setError('')
+  }
+
+  return (
+    <>
+      <section className="panel">
+        <div className="section-heading">
+          <h2>Bulk Sale Import</h2>
+          <button type="button" className="secondary" onClick={clearImport}>Clear</button>
+        </div>
+        <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>
+          Paste JSON sale rows, validate inventory, edit invalid rows, then create normal sale transactions.
+        </p>
+
+        {(message || error) && (
+          <div className={`status ${error ? 'error' : 'success'}`}>{error || message}</div>
+        )}
+
+        <label>
+          JSON Input
+          <textarea
+            rows="10"
+            value={jsonText}
+            onChange={(event) => setJsonText(event.target.value)}
+            placeholder='[{"S.No":"1","Customer Name":"RAMA","Date":"2026-06-25","Barcode":"ABC12300001","Rate":6500,"Received Item Type":"Raw Metal","Received Metal":"GOLD","Received Category":"GOLD","Received Weight":2.5,"Purity":"100"}]'
+          />
+        </label>
+        <div className="filter-actions" style={{ marginTop: '14px' }}>
+          <button type="button" onClick={parseJson} disabled={loading || !jsonText.trim()}>Parse JSON</button>
+          <button type="button" className="secondary" onClick={() => validateRows()} disabled={loading || rows.length === 0}>Validate Rows</button>
+          <button type="button" onClick={generatePreview} disabled={loading || !allRowsValid}>Show Confirmation</button>
+        </div>
+      </section>
+
+      {rows.length > 0 && (
+        <section className="panel">
+          <div className="section-heading">
+            <h2>Validation Table</h2>
+            <span>{rows.length - invalidCount} valid / {invalidCount} invalid</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  {bulkSaleColumns.map(([field, label]) => <th key={field}>{label}</th>)}
+                  <th>Errors</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr key={row.rowId || rowIndex} className={row.status === 'VALID' ? 'selected' : ''}>
+                    <td><span className={`badge ${(row.status || 'pending').toLowerCase()}`}>{row.status || 'PENDING'}</span></td>
+                    {bulkSaleColumns.map(([field]) => (
+                      <td key={field} className="bulk-value-cell">{row[field] ?? '-'}</td>
+                    ))}
+                    <td className="bulk-errors">{(row.errors || []).join('; ') || '-'}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button type="button" className="secondary" onClick={() => openEditRow(rowIndex)} disabled={loading}>
+                          Edit
+                        </button>
+                        <button type="button" className="secondary" onClick={() => revalidateRow(rowIndex)} disabled={loading}>
+                          Revalidate
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {preview?.bills?.length > 0 && (
+        <section className="panel">
+          <div className="section-heading">
+            <h2>Confirm Bills</h2>
+            <button type="button" onClick={createSales} disabled={loading}>Create Sales</button>
+          </div>
+          <div className="bulk-preview-list">
+            {preview.bills.map((bill) => (
+              <article className="bulk-preview-bill" key={bill.serialNo}>
+                <h3>Bill {bill.serialNo}: {bill.customerName}</h3>
+                <p>{formatDate(bill.date)} | Sold {bill.totals.soldItems} item(s), {bill.totals.soldWeight}g | Received {bill.totals.receivedWeight}g</p>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Product</th>
+                        <th>Type</th>
+                        <th>Qty</th>
+                        <th>Weight</th>
+                        <th>Stone</th>
+                        <th>Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bill.saleItems.map((item, index) => (
+                        <tr key={`${item.inventoryId}-${index}`}>
+                          <td>{item.identifier}</td>
+                          <td>{item.stockType}</td>
+                          <td>{item.quantity}</td>
+                          <td>{item.weight}</td>
+                          <td>{item.stoneWeight || 0}</td>
+                          <td>{item.rate ?? '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {bill.receivedItems.length > 0 && <ReceivedItemTable items={bill.receivedItems} />}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {result?.sales?.length > 0 && (
+        <section className="panel">
+          <h2>Created Sales</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>S.No</th>
+                  <th>Sale ID</th>
+                  <th>Customer</th>
+                  <th>Items</th>
+                  <th>Weight</th>
+                  <th>Received Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.sales.map((sale) => (
+                  <tr key={sale.saleId}>
+                    <td>{sale.serialNo}</td>
+                    <td>{sale.saleId}</td>
+                    <td>{sale.customerName}</td>
+                    <td>{sale.totalItems}</td>
+                    <td>{sale.totalWeight}</td>
+                    <td>{sale.totalReceivedWeight}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <BulkSaleHelp />
+
+      {editDraft && (
+        <div className="modal-backdrop">
+          <div className="modal bulk-edit-modal">
+            <h2>Edit Import Row</h2>
+            <div className="bulk-edit-grid">
+              {bulkSaleColumns.map(([field, label]) => (
+                <label key={field}>
+                  {label}
+                  <input
+                    value={editDraft[field] ?? ''}
+                    onChange={(event) => setEditDraft({ ...editDraft, [field]: event.target.value })}
+                    autoComplete="off"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={closeEditRow}>Cancel</button>
+              <button type="button" onClick={saveEditRow}>Save Row</button>
+              <button type="button" onClick={() => {
+                const saved = saveEditRow()
+                if (saved) {
+                  validateRows(saved.nextRows)
+                }
+              }}>
+                Save & Revalidate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function BulkSaleHelp() {
+  const exampleJson = `[
+  {
+    "customerName": "Ramesh Kumar",
+    "barcode": "RU",
+    "quantity": 2,
+    "grossWeight": 4,
+    "stoneWeight": 0,
+    "rate": 13400,
+    "receivedItemType": "Old Ornament",
+    "receivedMetal": "GOLD",
+    "receivedCategory": "Old Ring",
+    "receivedWeight": 3.25,
+    "purity": 91.6,
+    "date": "2025-06-25",
+    "sNo": 1
+  }
+]`
+  const trayJson = `[
+  {
+    "sNo": 1,
+    "customerName": "Ramesh Kumar",
+    "date": "2025-06-25",
+    "barcode": "RU",
+    "quantity": 2,
+    "grossWeight": 4,
+    "stoneWeight": 0,
+    "rate": 13400
+  }
+]`
+  const tagJson = `[
+  {
+    "sNo": 1,
+    "customerName": "Ramesh Kumar",
+    "date": "2025-06-25",
+    "barcode": "ABC12300001",
+    "rate": 13400,
+    "receivedItemType": "Raw Metal",
+    "receivedMetal": "GOLD",
+    "receivedCategory": "Cash Gold",
+    "receivedWeight": 1.5,
+    "purity": 100
+  }
+]`
+
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <h2>Import JSON Reference</h2>
+      </div>
+      <div className="grid two">
+        <div>
+          <h3>Required Fields</h3>
+          <ul className="bulk-help-list">
+            <li><strong>sNo</strong>: bill grouping number</li>
+            <li><strong>customerName</strong>: existing or new customer name</li>
+            <li><strong>date</strong>: sale date, YYYY-MM-DD recommended</li>
+            <li><strong>barcode</strong>: tag code, tray code, tray name, tray category, or tray category code</li>
+            <li><strong>rate</strong>: sale rate</li>
+            <li><strong>quantity</strong> and <strong>grossWeight</strong>: required for tray sales</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Optional Fields</h3>
+          <ul className="bulk-help-list">
+            <li><strong>stoneWeight</strong>: tray stone weight, defaults to 0 when blank</li>
+            <li><strong>receivedItemType</strong>: Raw Metal or Old Ornament</li>
+            <li><strong>receivedMetal</strong>: GOLD or SILVER</li>
+            <li><strong>receivedCategory</strong>: independent received item category</li>
+            <li><strong>receivedWeight</strong>: received item weight</li>
+            <li><strong>purity</strong>: numerical percentage, such as 91.6 or 100</li>
+          </ul>
+        </div>
+      </div>
+      <div className="grid three bulk-example-grid">
+        <label>
+          Example JSON
+          <textarea rows="18" readOnly value={exampleJson} />
+        </label>
+        <label>
+          Example Tray Sale JSON
+          <textarea rows="18" readOnly value={trayJson} />
+        </label>
+        <label>
+          Example Tag Sale JSON
+          <textarea rows="18" readOnly value={tagJson} />
+        </label>
+      </div>
     </section>
   )
 }
