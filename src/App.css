@@ -75,6 +75,25 @@
   white-space: nowrap;
 }
 
+.metal-rate-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-rate-inputs {
+  display: grid;
+  gap: 6px;
+  width: 120px;
+}
+
+.header-rate-inputs input {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
 .rate-values {
   display: flex;
   flex-direction: column;
@@ -109,6 +128,12 @@
 }
 
 .header-clock {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 245px;
+  min-height: 38px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -116,6 +141,9 @@
   color: var(--heading);
   font-size: 14px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -900,6 +928,15 @@ tr.selected {
     flex-wrap: wrap;
     justify-content: flex-start;
     white-space: normal;
+  }
+
+  .metal-rate-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-rate-inputs {
+    width: 100%;
   }
 
   .header-clock,

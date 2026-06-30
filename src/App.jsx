@@ -129,6 +129,14 @@ function App() {
   const [metalRates, setMetalRates] = useState(null)
   const [metalRatesLoading, setMetalRatesLoading] = useState(false)
   const [metalRatesError, setMetalRatesError] = useState('')
+  const [headerRateDrafts, setHeaderRateDrafts] = useState({
+    goldRate: '',
+    silverRate: '',
+  })
+  const [headerRateOverrides, setHeaderRateOverrides] = useState({
+    goldRate: '',
+    silverRate: '',
+  })
   const [manualRates, setManualRates] = useState({
     goldBuyRate: 0,
     goldSellRate: 0,
@@ -264,12 +272,19 @@ function App() {
     setCustomers(data.data)
   }
 
+  const applyHeaderRateOverrides = (rates) => ({
+    ...rates,
+    ...(headerRateOverrides.goldRate !== '' ? { goldSellRate: Number(headerRateOverrides.goldRate) } : {}),
+    ...(headerRateOverrides.silverRate !== '' ? { silverSellRate: Number(headerRateOverrides.silverRate) } : {}),
+  })
+
   const loadManualRates = async () => {
     try {
       const data = await request('/manual-rates/latest')
-      setManualRates(data.data)
-      setStockRates(data.data)
-      setSaleRates(data.data)
+      const nextRates = applyHeaderRateOverrides(data.data)
+      setManualRates(nextRates)
+      setStockRates(nextRates)
+      setSaleRates(nextRates)
     } catch (err) {
       // Silently fail and use defaults
     }
@@ -310,6 +325,50 @@ function App() {
 
   const refreshData = async () => {
     await Promise.all([loadTrays(), loadTags(), loadPrintQueue(), loadSellers(), loadCategories(), loadCustomers(), loadManualRates()])
+  }
+
+  const effectiveMetalRates = useMemo(() => ({
+    ...metalRates,
+    goldRate: headerRateOverrides.goldRate === '' ? metalRates?.goldRate : Number(headerRateOverrides.goldRate),
+    silverRate: headerRateOverrides.silverRate === '' ? metalRates?.silverRate : Number(headerRateOverrides.silverRate),
+  }), [headerRateOverrides, metalRates])
+
+  const updateHeaderRateDraft = (metal, value) => {
+    const normalizedValue = value === '' ? '' : Number(value)
+    if (value === '' || (Number.isFinite(normalizedValue) && normalizedValue >= 0)) {
+      setHeaderRateDrafts((current) => ({ ...current, [`${metal}Rate`]: value }))
+    }
+  }
+
+  const commitHeaderRateOverride = (metal) => {
+    const draftKey = `${metal}Rate`
+    const rateKey = metal === 'gold' ? 'goldSellRate' : 'silverSellRate'
+    const metalType = metal === 'gold' ? 'GOLD' : 'SILVER'
+    const draftValue = headerRateDrafts[draftKey]
+
+    if (draftValue === '') {
+      setHeaderRateOverrides((current) => ({ ...current, [draftKey]: '' }))
+      return
+    }
+
+    const nextRate = Number(draftValue)
+    if (!Number.isFinite(nextRate) || nextRate < 0) {
+      return
+    }
+
+    setHeaderRateOverrides((current) => ({ ...current, [draftKey]: draftValue }))
+    setManualRates((current) => ({ ...current, [rateKey]: nextRate }))
+    setStockRates((current) => ({ ...current, [rateKey]: nextRate }))
+    setSaleRates((current) => ({ ...current, [rateKey]: nextRate }))
+    setSaleEntry((current) => {
+      const previousDefault = saleRates[rateKey]
+      const currentRate = String(current.rate ?? '').trim()
+      const canReplaceCurrentRate = currentRate === '' || Number(currentRate) === Number(previousDefault || 0)
+
+      return current.metalType === metalType && canReplaceCurrentRate
+        ? { ...current, rate: nextRate }
+        : current
+    })
   }
 
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -1028,7 +1087,15 @@ function App() {
             <p>Inventory Management</p>
           </div>
         </div>
-        <MetalRateTicker rates={metalRates} loading={metalRatesLoading} error={metalRatesError} onUpdate={updateMetalRates} />
+        <HeaderMetalRatePanel
+          rates={effectiveMetalRates}
+          loading={metalRatesLoading}
+          error={metalRatesError}
+          onUpdate={updateMetalRates}
+          drafts={headerRateDrafts}
+          onDraftChange={updateHeaderRateDraft}
+          onDraftCommit={commitHeaderRateOverride}
+        />
         <HeaderClock value={currentDateTime} />
         <button onClick={logout}>Logout</button>
       </header>
@@ -1200,6 +1267,44 @@ function App() {
         />
       )}
     </main>
+  )
+}
+
+function HeaderMetalRatePanel({ rates, loading, error, onUpdate, drafts, onDraftChange, onDraftCommit }) {
+  return (
+    <div className="metal-rate-panel">
+      <MetalRateTicker rates={rates} loading={loading} error={error} onUpdate={onUpdate} />
+      <div className="header-rate-inputs">
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Gold rate"
+          value={drafts.goldRate}
+          onChange={(event) => onDraftChange('gold', event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              onDraftCommit('gold')
+            }
+          }}
+        />
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Silver rate"
+          value={drafts.silverRate}
+          onChange={(event) => onDraftChange('silver', event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              onDraftCommit('silver')
+            }
+          }}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -1566,6 +1671,34 @@ function UnifiedSalesPage({
     return () => clearTimeout(timeoutId)
   }, [searchInput, api])
 
+  useEffect(() => {
+    if (!entry.inventoryId || entry.rate !== '') {
+      return
+    }
+
+    const nextRate = entry.metalType === 'GOLD'
+      ? rates.goldSellRate
+      : entry.metalType === 'SILVER'
+        ? rates.silverSellRate
+        : ''
+
+    if (nextRate) {
+      setEntry((current) => ({ ...current, rate: nextRate }))
+    }
+  }, [entry.inventoryId, entry.metalType, entry.rate, rates.goldSellRate, rates.silverSellRate, setEntry])
+
+  const getDefaultSaleRate = (metalType) => {
+    if (metalType === 'GOLD') {
+      return rates.goldSellRate || ''
+    }
+
+    if (metalType === 'SILVER') {
+      return rates.silverSellRate || ''
+    }
+
+    return ''
+  }
+
   const handleSearchSelect = async (suggestion) => {
     setSearchInput(suggestion.value)
     setSuggestions([])
@@ -1592,7 +1725,7 @@ function UnifiedSalesPage({
         availableWeight: item.weight,
         availableStoneWeight: item.stoneWeight || 0,
         available: item.available,
-        rate: '',
+        rate: getDefaultSaleRate(item.metalType),
       })
     } catch (err) {
       setEntry({ ...emptySaleEntry, identifier: suggestion.value })
