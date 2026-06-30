@@ -6,7 +6,6 @@ import SoldItemsPage from './pages/SoldItems'
 import ReportsPage from './pages/Reports'
 import CategoriesPage from './pages/Categories'
 import RateHistoryPage from './pages/RateHistory'
-import AISaleImportPage from './pages/AISaleImport'
 import { printZpl } from './services/zebraBrowserPrint'
 import './App.css'
 
@@ -1136,10 +1135,6 @@ function App() {
         <BulkSaleImportPage api={api} onComplete={refreshData} />
       )}
 
-      {page === 'ai-sale-import' && (
-        <AISaleImportPage api={api} onComplete={refreshData} />
-      )}
-
       {page === 'print-queue' && (
         <PrintQueuePage
           tags={printQueueTags}
@@ -1303,9 +1298,6 @@ function HomePage({
           </button>
           <button onClick={() => setPage('bulk-sale-import')} style={{ minHeight: '80px' }}>
             <span>Bulk Sale Import</span>
-          </button>
-          <button onClick={() => setPage('ai-sale-import')} style={{ minHeight: '80px' }}>
-            <span>AI Sale Import</span>
           </button>
           <button onClick={() => setPage('past-bills')} style={{ minHeight: '80px' }}>
             <span>View Past Bills</span>
@@ -1923,7 +1915,9 @@ const bulkSaleColumns = [
 
 function BulkSaleImportPage({ api, onComplete }) {
   const [jsonText, setJsonText] = useState('')
+  const [imageFiles, setImageFiles] = useState([])
   const [rows, setRows] = useState([])
+  const [editingCell, setEditingCell] = useState(null)
   const [editingRowIndex, setEditingRowIndex] = useState(null)
   const [editDraft, setEditDraft] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -1960,6 +1954,20 @@ function BulkSaleImportPage({ api, onComplete }) {
     setMessage(`${response.data.data.rows.length} row(s) parsed`)
   })
 
+  const extractImage = () => runBulkAction(async () => {
+    const formData = new FormData()
+    imageFiles.forEach((file) => formData.append('images', file))
+
+    const response = await api.post('/inventory/bulk-sales/extract-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    setRows(response.data.data.rows)
+    setPreview(null)
+    setResult(null)
+    setJsonText(response.data.data.rawJson || '')
+    setMessage(`${response.data.data.rows.length} row(s) extracted: ${response.data.data.validCount} valid, ${response.data.data.invalidCount} invalid`)
+  })
+
   const validateRows = (nextRows = rows) => runBulkAction(async () => {
     const response = await api.post('/inventory/bulk-sales/validate', { rows: nextRows })
     setRows(response.data.data.rows)
@@ -1976,6 +1984,11 @@ function BulkSaleImportPage({ api, onComplete }) {
     )))
     setPreview(null)
     setResult(null)
+  }
+
+  const saveCardValue = (rowIndex, field, value) => {
+    updateRow(rowIndex, field, value)
+    setEditingCell(null)
   }
 
   const openEditRow = (rowIndex) => {
@@ -2041,7 +2054,9 @@ function BulkSaleImportPage({ api, onComplete }) {
 
   const clearImport = () => {
     setJsonText('')
+    setImageFiles([])
     setRows([])
+    setEditingCell(null)
     setPreview(null)
     setResult(null)
     setMessage('')
@@ -2056,15 +2071,34 @@ function BulkSaleImportPage({ api, onComplete }) {
           <button type="button" className="secondary" onClick={clearImport}>Clear</button>
         </div>
         <p style={{ color: 'var(--muted-text)', marginBottom: '20px', fontSize: '14px' }}>
-          Paste JSON sale rows, validate inventory, edit invalid rows, then create normal sale transactions.
+          Upload a sale list photo or paste JSON, verify the extracted rows, edit values if needed, then create normal sale transactions.
         </p>
 
         {(message || error) && (
           <div className={`status ${error ? 'error' : 'success'}`}>{error || message}</div>
         )}
 
+        <div className="ai-sale-upload-grid">
+          <label>
+            Sale List Image
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(event) => setImageFiles(Array.from(event.target.files || []))}
+            />
+          </label>
+          <div className="ai-upload-summary">
+            <strong>{imageFiles.length ? `${imageFiles.length} image(s) selected` : 'No image selected'}</strong>
+            <span>{imageFiles.map((file) => file.name).join(', ') || 'JPG, PNG, or WEBP. Upload up to 5 images.'}</span>
+          </div>
+          <button type="button" onClick={extractImage} disabled={loading || imageFiles.length === 0}>
+            {loading ? 'Extracting...' : 'Extract From Image'}
+          </button>
+        </div>
+
         <label>
-          JSON Input
+          JSON Input / AI Raw JSON
           <textarea
             rows="10"
             value={jsonText}
@@ -2078,6 +2112,74 @@ function BulkSaleImportPage({ api, onComplete }) {
           <button type="button" onClick={generatePreview} disabled={loading || !allRowsValid}>Show Confirmation</button>
         </div>
       </section>
+
+      {rows.length > 0 && (
+        <section className="panel">
+          <div className="section-heading">
+            <h2>Review Sale Cards</h2>
+            <span>{rows.length - invalidCount} valid / {invalidCount} invalid</span>
+          </div>
+          <div className="ai-sale-card-grid">
+            {rows.map((row, rowIndex) => (
+              <article className={`ai-sale-card ${row.status === 'INVALID' ? 'invalid' : row.status === 'VALID' ? 'valid' : ''}`} key={row.rowId || rowIndex}>
+                <div className="ai-sale-card-head">
+                  <div>
+                    <h3>Sale {row.serialNo || row.rowNumber || rowIndex + 1}</h3>
+                    <p>{row.customerName || 'Customer not set'}</p>
+                  </div>
+                  <span className={`badge ${(row.status || 'pending').toLowerCase()}`}>{row.status || 'PENDING'}</span>
+                </div>
+                <div className="ai-sale-fields">
+                  {bulkSaleColumns.map(([field, label]) => {
+                    const isEditing = editingCell?.rowIndex === rowIndex && editingCell?.field === field
+                    return (
+                      <div className="ai-sale-field" key={field}>
+                        <label>{label}</label>
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            defaultValue={row[field] ?? ''}
+                            onBlur={(event) => saveCardValue(rowIndex, field, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                saveCardValue(rowIndex, field, event.currentTarget.value)
+                              }
+                              if (event.key === 'Escape') {
+                                setEditingCell(null)
+                              }
+                            }}
+                          />
+                        ) : (
+                          <button type="button" className="ai-sale-value" onClick={() => setEditingCell({ rowIndex, field })}>
+                            {row[field] || '-'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                {(row.errors || []).length > 0 && (
+                  <div className="ai-sale-errors">
+                    {row.errors.map((rowError, errorIndex) => <span key={`${row.rowId || rowIndex}-${errorIndex}`}>{rowError}</span>)}
+                  </div>
+                )}
+                <div className="row-actions">
+                  <button type="button" className="secondary" onClick={() => revalidateRow(rowIndex)} disabled={loading}>
+                    Revalidate
+                  </button>
+                  <button type="button" className="secondary" onClick={() => openEditRow(rowIndex)} disabled={loading}>
+                    Edit All
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="filter-actions" style={{ marginTop: '18px' }}>
+            <button type="button" className="secondary" onClick={() => validateRows()} disabled={loading || rows.length === 0}>Validate All</button>
+            <button type="button" onClick={generatePreview} disabled={loading || !allRowsValid}>Show Confirmation</button>
+          </div>
+        </section>
+      )}
 
       {rows.length > 0 && (
         <section className="panel">
