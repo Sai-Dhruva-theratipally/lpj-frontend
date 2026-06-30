@@ -128,12 +128,6 @@
 }
 
 .header-clock {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 245px;
-  min-height: 38px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -141,9 +135,6 @@
   color: var(--heading);
   font-size: 14px;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;
-  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -644,6 +635,7 @@ tr.selected {
   color: var(--muted-text);
   font-size: 13px;
 }
+
 
 .ai-sale-fields {
   display: grid;
